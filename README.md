@@ -64,13 +64,25 @@ resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
 - Titles are neon sprite text drawn from a built-in 5×7 pixel font, frames use
   synchronized output, and sound effects are synthesized at start-up.
 
-| Path | What's there |
-|---|---|
-| `src/kitty.rs`, `src/term.rs` | graphics protocol, terminal setup |
-| `src/gfx.rs`, `src/font.rs` | shape drawing, glow, atlas packing, pixel font |
-| `src/audio.rs` | sound synthesis and playback |
-| `src/game.rs`, `src/art.rs`, `src/render.rs` | Glowstorm |
-| `src/bin/spike.rs` | placement and bandwidth benchmark |
+The repository is a Cargo workspace with two crates:
+
+```
+crates/
+├── catnip/              the engine, usable for any game
+│   ├── src/kitty.rs     graphics protocol: uploads, placements
+│   ├── src/term.rs      terminal setup, window size, input modes
+│   ├── src/gfx.rs       procedural shapes, glow, atlas packing
+│   ├── src/font.rs      5×7 pixel font
+│   ├── src/synth.rs     sound synthesis and playback
+│   └── examples/spike.rs  placement and bandwidth benchmark
+└── glowstorm/           the game
+    ├── src/main.rs      start-up and terminal detection
+    ├── src/app.rs       frame loop and input events
+    ├── src/sound.rs     the game's sound effects
+    ├── src/art/         sprites, palette, fonts, arena floor
+    ├── src/game/        simulation: player, enemies, waves, combat, boss, upgrades
+    └── src/render/      drawing: the arena, HUD and menus
+```
 
 ## Requirements
 
@@ -81,7 +93,7 @@ resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
 ## Benchmark
 
 ```sh
-cargo run --release --bin spike
+cargo run --release -p catnip --example spike
 ```
 
 Moves bouncing sprites around with an on-screen readout of fps and bytes per
@@ -92,8 +104,8 @@ pixel buffer, `u` removes the 60 fps cap. On a recent laptop, kitty keeps about
 ## Development
 
 ```sh
-cargo test
-cargo clippy --all-targets
+cargo test --workspace
+cargo clippy --workspace --all-targets
 ```
 
 `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` turns off damage, and

@@ -1,0 +1,8 @@
+[package]
+name = "glowstorm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+catnip = { path = "../catnip" }
+crossterm = "0.28"

@@ -221,6 +221,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "glowstorm"
+version = "0.1.0"
+dependencies = [
+ "catnip",
+ "crossterm",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
