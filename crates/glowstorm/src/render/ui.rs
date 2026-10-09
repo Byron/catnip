@@ -56,7 +56,7 @@ impl Renderer {
             text.cards(game);
             self.cards_shown = true;
         } else if self.cards_shown {
-            for id in [10, 11, 12, 20] {
+            for id in [10, 11, 12] {
                 kitty::delete_placement(text.out, SHADE_ID, id);
             }
             kitty::delete_placement(text.out, FLASH_ID, 2);

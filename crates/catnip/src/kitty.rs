@@ -297,6 +297,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn placer_crops_offscreen_parts_and_deletes_stale_ids() {
+        let mut placer = Placer::new(5);
+        let mut out = Vec::new();
+        let src = Rect {
+            x: 100,
+            y: 40,
+            w: 30,
+            h: 20,
+        };
+        placer.begin((200, 100), (10, 20));
+        // Hanging 10 px off the left edge: the source rect loses its first 10 px.
+        placer.place(&mut out, src, (-10, 0), 0);
+        // Entirely off-screen: no placement at all.
+        placer.place(&mut out, src, (500, 500), 0);
+        placer.place(&mut out, src, (50, 50), 0);
+        placer.finish(&mut out);
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("x=110,y=40,w=20,h=20"), "{text:?}");
+        assert_eq!(placer.count(), 2);
+        // Next frame draws one sprite: placement 2 must be deleted.
+        let mut out = Vec::new();
+        placer.begin((200, 100), (10, 20));
+        placer.place(&mut out, src, (50, 50), 0);
+        placer.finish(&mut out);
+        assert!(String::from_utf8(out).unwrap().contains("a=d,d=i,i=5,p=2"));
+    }
+
+    #[test]
     fn graphics_replies_are_parsed_by_id() {
         let bytes =
             b"junk\x1b_Gi=7;OK\x1b\\\x1b_Gi=10,p=2;EINVAL:Image too large\x1b\\\x1b_Gi=3;partial";

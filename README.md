@@ -69,7 +69,7 @@ The repository is a Cargo workspace with two crates:
 
 ```
 crates/
-├── catnip/              the engine, usable for any game
+├── catnip/              the engine, kept free of game-specific code
 │   ├── src/kitty.rs     graphics protocol: uploads, placements
 │   ├── src/term.rs      terminal setup, window size, input modes
 │   ├── src/gfx.rs       procedural shapes, glow, atlas packing
@@ -111,4 +111,8 @@ cargo clippy --workspace --all-targets
 
 `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` turns off damage, and
 `GLOWSTORM_CARDS=1` opens the upgrade screen right away.
-Runs with either set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
+Runs with any of them set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

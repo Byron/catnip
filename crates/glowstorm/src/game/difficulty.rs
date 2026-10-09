@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// Difficulty adds pressure, not health: enemy_hp stays 1.0 on every level,
+/// so harder means faster, busier and more aggressive, never spongier.
+#[derive(Clone, Copy, Debug)]
+pub struct Tuning {
+    pub hearts: i32,
+    pub enemy_hp: f32,
+    pub enemy_speed: f32,
+    /// Divides attack cooldowns.
+    pub attack_rate: f32,
+    /// Multiplies each wave's spawn budget.
+    pub enemy_count: f32,
+    pub boss_hp: f32,
+    /// Score multiplier.
+    pub score: f32,
+    /// Spawns behave as if this many waves later (earlier unlocks).
+    pub head_start: u32,
+}
+
 /// Picked on the title screen. Harder settings pay more points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Difficulty {
@@ -29,17 +47,45 @@ impl Difficulty {
         }
     }
 
-    /// (hearts, enemy hp, enemy speed, attack rate, enemies per wave, boss hp, score)
-    pub(super) fn tuning(self) -> (i32, f32, f32, f32, f32, f32, f32) {
+    /// The numbers behind each difficulty (see the table in the rulebook).
+    pub(super) fn tuning(self) -> Tuning {
+        let medium = Tuning {
+            hearts: 5,
+            enemy_hp: 1.0,
+            enemy_speed: 1.0,
+            attack_rate: 1.0,
+            enemy_count: 1.0,
+            boss_hp: 1.0,
+            score: 1.0,
+            head_start: 0,
+        };
         match self {
-            Difficulty::Medium => (5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
-            Difficulty::Hard => (4, 1.0, 1.1, 1.3, 1.25, 1.1, 1.5),
-            Difficulty::Extreme => (3, 1.0, 1.2, 1.6, 1.7, 1.25, 2.0),
+            Difficulty::Medium => medium,
+            Difficulty::Hard => Tuning {
+                hearts: 4,
+                enemy_speed: 1.1,
+                attack_rate: 1.3,
+                enemy_count: 1.25,
+                boss_hp: 1.1,
+                score: 1.5,
+                head_start: 1,
+                ..medium
+            },
+            Difficulty::Extreme => Tuning {
+                hearts: 3,
+                enemy_speed: 1.2,
+                attack_rate: 1.6,
+                enemy_count: 1.7,
+                boss_hp: 1.25,
+                score: 2.0,
+                head_start: 2,
+                ..medium
+            },
         }
     }
 
     pub fn hearts(self) -> i32 {
-        self.tuning().0
+        self.tuning().hearts
     }
 
     pub(super) fn file_suffix(self) -> &'static str {
@@ -78,8 +124,8 @@ impl Game {
 
     /// Points after the combo multiplier and difficulty bonus.
     pub(super) fn award(&mut self, base: u64) -> u64 {
-        let points =
-            (base as f32 * self.multiplier() as f32 * self.difficulty.tuning().6).round() as u64;
+        let points = (base as f32 * self.multiplier() as f32 * self.difficulty.tuning().score)
+            .round() as u64;
         self.score += points;
         points
     }

@@ -23,7 +23,8 @@ impl Game {
             self.boss_pending = 2.6;
             self.sfx.push(Sfx::Siren);
         } else {
-            self.budget = ((6 + 4 * self.effective_wave()) as f32 * self.difficulty.tuning().4)
+            self.budget = ((6 + 4 * self.effective_wave()) as f32
+                * self.difficulty.tuning().enemy_count)
                 .round() as i32;
             self.banner = 2.0;
             self.sfx.push(Sfx::Wave);
@@ -68,7 +69,7 @@ impl Game {
         {
             self.wave_clear = 1.8;
             // The wave bonus scales with difficulty but not with the combo.
-            let bonus = (100.0 * self.wave as f32 * self.difficulty.tuning().6).round() as u64;
+            let bonus = (100.0 * self.wave as f32 * self.difficulty.tuning().score).round() as u64;
             self.score += bonus;
             self.slow(0.6, 0.35);
             self.flash = 0.08;
@@ -103,30 +104,16 @@ impl Game {
     /// Hard and Extreme start where Medium would be a wave or two in, so
     /// their opening waves aren't a quiet warm-up.
     pub(super) fn effective_wave(&self) -> u32 {
-        self.wave
-            + match self.difficulty {
-                Difficulty::Medium => 0,
-                Difficulty::Hard => 1,
-                Difficulty::Extreme => 2,
-            }
+        self.wave + self.difficulty.tuning().head_start
     }
 
     pub(super) fn spawn_group(&mut self) {
         let wave = self.effective_wave();
-        let mut options = vec![Kind::Chaser];
-        if wave >= 2 {
-            options.push(Kind::Swarm);
-        }
-        if wave >= 3 {
-            options.push(Kind::Shooter);
-        }
-        if wave >= 4 {
-            options.push(Kind::Tank);
-        }
-        options.retain(|k| k.cost() <= self.budget);
-        // Tanks are picked half as often: at cost 6 they'd otherwise eat about
-        // half of every budget, and their volleys would dominate the wave.
-        let weight = |k: &Kind| if *k == Kind::Tank { 0.5 } else { 1.0 };
+        let options: Vec<Kind> = Kind::ALL
+            .into_iter()
+            .filter(|k| k.spec().first_wave <= wave && k.spec().cost <= self.budget)
+            .collect();
+        let weight = |k: &Kind| k.spec().weight;
         let total: f32 = options.iter().map(weight).sum();
         let mut roll = self.rng.unit() * total;
         let mut kind = options[0];
@@ -137,7 +124,8 @@ impl Game {
                 break;
             }
         }
-        self.budget -= kind.cost();
+        let spec = kind.spec();
+        self.budget -= spec.cost;
 
         // Somewhere inside the arena, not on top of the player.
         let margin = 90.0;
@@ -151,14 +139,14 @@ impl Game {
                 break;
             }
         }
-        let count = if kind == Kind::Swarm { 5 } else { 1 };
+        let count = spec.group;
         // Elites from wave 6: rare at first, up to 15%.
         let elite_chance = if self.wave >= 6 {
             (0.06 + 0.01 * (self.wave - 6) as f32).min(0.15)
         } else {
             0.0
         };
-        let elite = kind != Kind::Swarm && self.rng.chance(elite_chance);
+        let elite = spec.can_be_elite && self.rng.chance(elite_chance);
         for i in 0..count {
             let offset = if count > 1 {
                 V2::from_angle(i as f32 * TAU / count as f32) * 34.0

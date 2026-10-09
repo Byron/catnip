@@ -2,6 +2,9 @@
 name = "catnip"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A small game engine for the kitty terminal graphics protocol"
 
 [dependencies]
 base64 = "0.22"

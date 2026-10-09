@@ -10,51 +10,109 @@ pub enum Kind {
     Tank,
 }
 
+/// Everything about an enemy type that is a number or a choice, in one place.
+/// Behavior (how it moves and attacks) lives in `update_enemies`.
+#[derive(Clone, Copy, Debug)]
+pub struct Spec {
+    pub hp: f32,
+    pub radius: f32,
+    pub score: u64,
+    pub hue: Hue,
+    /// Wave budget one spawn uses.
+    pub cost: i32,
+    /// First (effective) wave it can spawn in.
+    pub first_wave: u32,
+    /// How many spawn together.
+    pub group: usize,
+    /// Relative chance to be picked when it's allowed.
+    pub weight: f32,
+    pub can_be_elite: bool,
+    /// How far a full-damage hit pushes it back.
+    pub knockback: f32,
+    /// Spin speed (rad/s) for the spinning sprite.
+    pub spin: f32,
+    /// Its sprite turns to face the player instead of spinning.
+    pub faces_player: bool,
+    /// A big death: bigger blast, hit-stop, white flash.
+    pub big_death: bool,
+    /// What it breaks into when killed.
+    pub splits_into: Option<(Kind, usize)>,
+}
+
 impl Kind {
-    pub(super) fn hp(self) -> f32 {
+    pub const ALL: [Kind; 4] = [Kind::Chaser, Kind::Swarm, Kind::Shooter, Kind::Tank];
+
+    pub fn spec(self) -> Spec {
+        let base = Spec {
+            hp: 1.0,
+            radius: 16.0,
+            score: 10,
+            hue: Hue::Magenta,
+            cost: 1,
+            first_wave: 1,
+            group: 1,
+            weight: 1.0,
+            can_be_elite: true,
+            knockback: 160.0,
+            spin: 0.0,
+            faces_player: false,
+            big_death: false,
+            splits_into: None,
+        };
         match self {
-            Kind::Chaser => 2.0,
-            Kind::Swarm => 1.0,
-            Kind::Shooter => 4.0,
-            Kind::Tank => 16.0,
+            Kind::Chaser => Spec {
+                hp: 2.0,
+                spin: 4.0,
+                ..base
+            },
+            Kind::Swarm => Spec {
+                hp: 1.0,
+                radius: 10.0,
+                score: 5,
+                hue: Hue::Yellow,
+                cost: 3,
+                first_wave: 2,
+                group: 5,
+                // Too small to read a gold ring on.
+                can_be_elite: false,
+                spin: 7.0,
+                ..base
+            },
+            Kind::Shooter => Spec {
+                hp: 4.0,
+                radius: 18.0,
+                score: 25,
+                hue: Hue::Orange,
+                cost: 3,
+                first_wave: 3,
+                faces_player: true,
+                ..base
+            },
+            Kind::Tank => Spec {
+                hp: 16.0,
+                radius: 32.0,
+                score: 80,
+                hue: Hue::Green,
+                cost: 6,
+                first_wave: 4,
+                // At cost 6 tanks would otherwise eat about half of every
+                // budget, and their volleys would dominate the wave.
+                weight: 0.5,
+                knockback: 30.0,
+                spin: 0.8,
+                big_death: true,
+                splits_into: Some((Kind::Chaser, 3)),
+                ..base
+            },
         }
     }
 
     pub fn radius(self) -> f32 {
-        match self {
-            Kind::Chaser => 16.0,
-            Kind::Swarm => 10.0,
-            Kind::Shooter => 18.0,
-            Kind::Tank => 32.0,
-        }
-    }
-
-    pub(super) fn score(self) -> u64 {
-        match self {
-            Kind::Chaser => 10,
-            Kind::Swarm => 5,
-            Kind::Shooter => 25,
-            Kind::Tank => 80,
-        }
+        self.spec().radius
     }
 
     pub fn hue(self) -> Hue {
-        match self {
-            Kind::Chaser => Hue::Magenta,
-            Kind::Swarm => Hue::Yellow,
-            Kind::Shooter => Hue::Orange,
-            Kind::Tank => Hue::Green,
-        }
-    }
-
-    /// How much of a wave's budget one spawn of this kind uses.
-    pub(super) fn cost(self) -> i32 {
-        match self {
-            Kind::Chaser => 1,
-            Kind::Swarm => 3,
-            Kind::Shooter => 3,
-            Kind::Tank => 6,
-        }
+        self.spec().hue
     }
 }
 
@@ -128,14 +186,15 @@ pub(super) const SHOCK_SPEED: f32 = 560.0;
 
 impl Game {
     /// Health grows 6% a wave but stops at 2×: past that, waves get harder
-    /// through numbers and aggression, not bullet sponges (see notes/design.md).
+    /// through numbers and aggression, not bullet sponges.
     pub(super) fn enemy_hp_scale(&self) -> f32 {
         let growth = (1.0 + 0.06 * self.wave.saturating_sub(1) as f32).min(2.0);
-        self.difficulty.tuning().1 * growth
+        self.difficulty.tuning().enemy_hp * growth
     }
 
     pub(super) fn enemy_speed_scale(&self) -> f32 {
-        self.difficulty.tuning().2 * (1.0 + 0.03 * self.wave.saturating_sub(1) as f32).min(1.45)
+        self.difficulty.tuning().enemy_speed
+            * (1.0 + 0.03 * self.wave.saturating_sub(1) as f32).min(1.45)
     }
 
     /// Multiplies attack cooldowns: below 1 means enemies attack more often.
@@ -143,13 +202,13 @@ impl Game {
     /// floor so Extreme stays faster than Medium in late waves too.
     pub(super) fn enemy_cooldown_scale(&self) -> f32 {
         let ramp = (1.0 / (1.0 + 0.04 * self.wave.saturating_sub(1) as f32)).max(0.55);
-        ramp / self.difficulty.tuning().3
+        ramp / self.difficulty.tuning().attack_rate
     }
 
     pub(super) fn add_enemy(&mut self, kind: Kind, pos: V2, vel: V2, elite: bool) {
         let id = self.next_id;
         self.next_id += 1;
-        let hp = kind.hp() * self.enemy_hp_scale() * if elite { 3.0 } else { 1.0 };
+        let hp = kind.spec().hp * self.enemy_hp_scale() * if elite { 3.0 } else { 1.0 };
         let cooldown = self.rng.range(1.0, 2.0);
         let phase = self.rng.range(0.0, TAU);
         self.enemies.push(Enemy {
@@ -335,12 +394,7 @@ impl Game {
                 e.pos.y = e.pos.y.clamp(r, WORLD_H - r);
                 e.vel.y = -e.vel.y;
             }
-            let spin = match e.kind {
-                Kind::Chaser => 4.0,
-                Kind::Swarm => 7.0,
-                Kind::Tank => 0.8,
-                Kind::Shooter => 0.0,
-            };
+            let spin = e.kind.spec().spin;
             // Winding up spins faster, part of the tell.
             e.spin += dt * spin * if e.act == Act::Windup { 3.5 } else { 1.0 };
             let turn = (dir.angle() - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;

@@ -168,3 +168,21 @@ fn synth(sfx: Sfx) -> Vec<f32> {
         ]),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_sound_has_its_own_clip() {
+        let all: Vec<Sfx> = BASIC
+            .into_iter()
+            .chain((0..COMBO_NOTES).map(Sfx::Combo))
+            .collect();
+        let mut slots: Vec<usize> = all.iter().map(|s| s.index()).collect();
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), all.len(), "two sounds share a clip");
+        assert!(slots.iter().all(|&i| i < all.len()));
+    }
+}

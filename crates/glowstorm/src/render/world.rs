@@ -46,11 +46,7 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
         };
         // Wind-ups blink white and shudder: the tell before an attack.
         let blink = e.winding_up() && (game.time * 18.0) as i32 % 2 == 0;
-        let frames = if e.flash > 0.0 || blink {
-            &set.flash
-        } else {
-            &set.normal
-        };
+        let white = e.flash > 0.0 || blink;
         let shudder = if e.winding_up() {
             V2 {
                 x: (game.time * 90.0 + e.phase).sin() * 2.5,
@@ -59,12 +55,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
         } else {
             V2::default()
         };
-        let k = match e.kind {
-            Kind::Shooter => art::angle_frame(e.facing, art::SHOOTER_ANGLES, TAU),
-            Kind::Tank => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 6.0),
-            _ => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 4.0),
+        let angle = if e.kind.spec().faces_player {
+            e.facing
+        } else {
+            e.spin
         };
-        draw.sprite(frames[k], e.pos + shudder, Z_ENEMIES);
+        draw.sprite(set.at(angle, white), e.pos + shudder, Z_ENEMIES);
         if e.enraged {
             // A red ring pulsing outward, three times a second.
             let frames = &sprites.ring[Hue::Red.index()];
@@ -72,9 +68,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             draw.sprite(frames[k.min(frames.len() - 1)], e.pos, Z_ENEMIES - 2);
         }
         if e.elite {
-            let aura = &sprites.aura[usize::from(e.kind == Kind::Tank)];
-            let k = art::angle_frame(game.time * 1.5 + e.phase, art::AURA_FRAMES, TAU / 10.0);
-            draw.sprite(aura[k], e.pos, Z_ENEMIES - 1);
+            let aura = &sprites.aura[usize::from(e.kind.radius() > 25.0)];
+            draw.sprite(
+                aura.at(game.time * 1.5 + e.phase, false),
+                e.pos,
+                Z_ENEMIES - 1,
+            );
         }
     }
 
@@ -166,15 +165,8 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
 pub(super) fn draw_boss(draw: &mut Draw, sprites: &Sprites, game: &Game, b: &crate::game::Boss) {
     let blink = b.windup > 0.0 && (game.time * 16.0) as i32 % 2 == 0;
     let white = b.flash > 0.0 || blink;
-    let (shell, core) = if white {
-        (&sprites.boss_shell.flash, &sprites.boss_core.flash)
-    } else {
-        (&sprites.boss_shell.normal, &sprites.boss_core.normal)
-    };
-    let k = art::angle_frame(b.spin, art::BOSS_SHELL_FRAMES, TAU / 8.0);
-    draw.sprite(shell[k], b.pos, Z_BOSS);
-    let k = art::angle_frame(b.core_spin, art::BOSS_CORE_FRAMES, TAU / 3.0);
-    draw.sprite(core[k], b.pos, Z_BOSS + 1);
+    draw.sprite(sprites.boss_shell.at(b.spin, white), b.pos, Z_BOSS);
+    draw.sprite(sprites.boss_core.at(b.core_spin, white), b.pos, Z_BOSS + 1);
     // Charge tell: a blinking dotted line along the dash path.
     if b.charging() && (game.time * 12.0) as i32 % 2 == 0 {
         for i in 1..18 {

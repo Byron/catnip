@@ -34,7 +34,7 @@ pub struct Sprites {
     /// Dim drifting background specks: [cyan, violet].
     pub mote: [Frame; 2],
     /// Rotating gold dashed rings marking elites: [small, big].
-    pub aura: [Vec<Frame>; 2],
+    pub aura: [Flashing; 2],
     pub shield: Frame,
     pub(super) fonts: Vec<(TextSize, Hue, Font)>,
 }
@@ -268,7 +268,6 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
                 }
             },
         )
-        .normal
     });
     let shield = atlas.add(neon_sprite(s, 9.0, Hue::Cyan.color(), |l, b, c, r| {
         b.fill_circle(c, r, 1.0);

@@ -70,7 +70,7 @@ impl Game {
                 let damage = b.strength() * power;
                 e.hp -= damage;
                 e.flash = 0.07;
-                let knock = if e.kind == Kind::Tank { 30.0 } else { 160.0 };
+                let knock = e.kind.spec().knockback;
                 e.vel += b.vel.norm() * knock * damage;
                 hits.push((
                     e.pos - b.vel.norm() * e.kind.radius(),
@@ -135,7 +135,7 @@ impl Game {
         let before = self.multiplier();
         self.chain += 1;
         self.chain_t = 2.2;
-        let points = self.award(e.kind.score() * if e.elite { 3 } else { 1 });
+        let points = self.award(e.kind.spec().score * if e.elite { 3 } else { 1 });
         self.popup(e.pos, format!("+{points}"), e.elite);
         if e.elite {
             self.flash = 0.06;
@@ -163,7 +163,7 @@ impl Game {
                 inward: false,
             });
         }
-        let big = e.kind == Kind::Tank;
+        let big = e.kind.spec().big_death;
         let hue = e.kind.hue();
         self.rings.push(Ring {
             pos: e.pos,
@@ -195,9 +195,11 @@ impl Game {
         if big {
             self.hitstop = 0.04;
             self.flash = 0.05;
-            for i in 0..3 {
-                let dir = V2::from_angle(i as f32 * TAU / 3.0 + self.rng.unit());
-                self.add_enemy(Kind::Chaser, e.pos + dir * 26.0, dir * 380.0, false);
+        }
+        if let Some((kind, count)) = e.kind.spec().splits_into {
+            for i in 0..count {
+                let dir = V2::from_angle(i as f32 * TAU / count as f32 + self.rng.unit());
+                self.add_enemy(kind, e.pos + dir * 26.0, dir * 380.0, false);
             }
         }
         let drop_chance = if e.elite {

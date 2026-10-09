@@ -270,3 +270,76 @@ fn firing_or_dashing_into_the_card_screen_does_not_pick_a_card() {
         "a deliberate pick after the grace works"
     );
 }
+
+#[test]
+fn every_state_enemy_and_boss_phase_renders_without_panicking() {
+    use crate::{
+        art,
+        render::{Renderer, Stats},
+    };
+    let (atlas, sprites) = art::build_sprites(0.6);
+    let win = catnip::term::Window {
+        cols: 120,
+        rows: 40,
+        width: 1200,
+        height: 800,
+    };
+    let mut renderer = Renderer::new((100, 100), atlas.len());
+    let stats = Stats {
+        fps: 60.0,
+        frame_ms: 0.2,
+        kb_per_frame: 4.0,
+    };
+    let view = View {
+        scale: 0.6,
+        size: v2(2000.0, 1333.0),
+    };
+
+    let mut game = Game::new(23);
+    game.start();
+    game.dev.god = true;
+    for (i, kind) in Kind::ALL.into_iter().enumerate() {
+        let at = game.player.pos + v2(80.0 * i as f32 - 120.0, 90.0);
+        game.add_enemy(kind, at, V2::default(), true);
+        game.add_enemy(kind, at + v2(0.0, 60.0), V2::default(), false);
+    }
+    game.enemies[0].enraged = true;
+    game.start_wave(5);
+    let mut out = Vec::new();
+    let mut draw = |game: &Game| {
+        out.clear();
+        renderer.frame(&mut out, game, &sprites, 0.6, win, &stats);
+        assert!(!out.is_empty());
+    };
+    // Title, play, boss entrance and fight, pause, cards, death, game over.
+    draw(&game);
+    for _ in 0..(60 * 8) {
+        game.update(
+            1.0 / 60.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        draw(&game);
+    }
+    if let Some(b) = game.boss.as_mut() {
+        b.hp = b.max_hp * 0.2;
+    }
+    for _ in 0..120 {
+        game.update(1.0 / 60.0, &Input::default(), &view);
+        draw(&game);
+    }
+    for state in [
+        State::Paused,
+        State::Title,
+        State::Upgrade,
+        State::Dying,
+        State::GameOver,
+    ] {
+        game.offer = game.roll_offer();
+        game.state = state;
+        draw(&game);
+    }
+}

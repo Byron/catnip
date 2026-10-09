@@ -65,8 +65,8 @@ impl Game {
         let level = (self.wave / 5).max(1);
         // +25% per boss level, capped at 2× like regular enemies.
         let growth = (1.0 + 0.25 * (level - 1) as f32).min(2.0);
-        let max_hp = 130.0 * self.difficulty.tuning().5 * growth;
-        let pace = self.difficulty.tuning().2;
+        let max_hp = 130.0 * self.difficulty.tuning().boss_hp * growth;
+        let pace = self.difficulty.tuning().enemy_speed;
         // Settle on the side of the arena away from the player.
         let center = v2(WORLD_W / 2.0, WORLD_H / 2.0);
         let mut away = (center - self.player.pos).norm();

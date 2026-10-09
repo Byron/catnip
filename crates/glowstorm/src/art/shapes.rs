@@ -6,6 +6,17 @@ use super::*;
 pub struct Flashing {
     pub normal: Vec<Frame>,
     pub flash: Vec<Frame>,
+    /// The angle the frames cover; a shape with n-fold symmetry repeats after
+    /// TAU / n, so it only needs frames for that slice.
+    pub sweep: f32,
+}
+
+impl Flashing {
+    /// The frame closest to `angle`, white when flashing.
+    pub fn at(&self, angle: f32, white: bool) -> Frame {
+        let frames = if white { &self.flash } else { &self.normal };
+        frames[angle_frame(angle, frames.len(), self.sweep)]
+    }
 }
 
 /// Builds one square neon sprite of logical `radius`, drawn by `draw` into
@@ -77,5 +88,9 @@ pub(super) fn rotations(
             flash.push(frame)
         }
     }
-    Flashing { normal, flash }
+    Flashing {
+        normal,
+        flash,
+        sweep,
+    }
 }
