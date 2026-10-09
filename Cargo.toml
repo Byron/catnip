@@ -1,0 +1,19 @@
+[package]
+name = "catnip"
+version = "0.1.0"
+edition = "2024"
+default-run = "glowstorm"
+
+[[bin]]
+name = "glowstorm"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+crossterm = "0.28"
+libc = "0.2"
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
+
+[profile.dev.package.crossterm]
+# Pixel mouse mode can report coordinate 0, which crossterm decrements.
+overflow-checks = false
