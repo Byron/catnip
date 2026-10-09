@@ -42,7 +42,8 @@ pub struct Mote {
     pub hue: usize,
 }
 
-pub(super) const MAX_PARTICLES: usize = 900;
+/// Particles are the first thing to give up under kitty's ~1,500-placement budget.
+pub(super) const MAX_PARTICLES: usize = 600;
 
 pub(super) const MOTES: usize = 90;
 

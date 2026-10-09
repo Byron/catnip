@@ -49,8 +49,9 @@ impl Sprites {
     }
 }
 
-pub fn build_sprites(s: f32) -> (Image, Sprites) {
-    let mut atlas = AtlasBuilder::new(4096);
+/// Builds every sprite; returns the atlas pages and where each frame lives.
+pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
+    let mut atlas = AtlasBuilder::new();
     let line = |w: f32| (w * s).max(1.2);
 
     // Player: a chevron pointing along +x.

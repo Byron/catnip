@@ -199,13 +199,24 @@ impl Game {
         if self.dev.cards {
             self.offer = self.roll_offer();
             self.state = State::Upgrade;
+            self.state_t = 0.0;
         }
     }
 
     pub fn on_focus_lost(&mut self) {
+        self.pause();
+    }
+
+    pub fn pause(&mut self) {
         if self.state == State::Playing {
             self.state = State::Paused;
         }
+    }
+
+    /// Q quits from menus; mid-run it only pauses, so a stray press next to
+    /// W/A (or Z/Q/S/D on AZERTY) doesn't throw the run away.
+    pub fn quit_allowed(&self) -> bool {
+        !matches!(self.state, State::Playing | State::Dying)
     }
 
     pub fn update(&mut self, dt: f32, input: &Input, view: &View) {
@@ -293,6 +304,7 @@ impl Game {
                 }
             }
             State::Upgrade => {
+                self.state_t += dt;
                 self.follow(self.player.pos, view, dt, 8.0);
                 self.update_effects(dt);
                 self.update_offer(input, view);

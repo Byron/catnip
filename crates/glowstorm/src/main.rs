@@ -37,17 +37,29 @@ fn main() {
     let floor = art::build_floor(scale);
     let build_time = started.elapsed();
 
+    // Before stderr goes to the log: a panic must restore the screen and
+    // print where the user can see it.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        term::restore();
+        kitty::cleanup_shm();
+        default_hook(info);
+    }));
     let log = std::env::temp_dir().join("glowstorm.log");
     let _ = term::redirect_stderr(&log);
     eprintln!(
-        "window {}x{} px, {}x{} cells of {:?} px, scale {scale:.2}, atlas {}x{}, floor {}x{}, built in {build_time:?}",
+        "window {}x{} px, {}x{} cells of {:?} px, scale {scale:.2}, atlas {} pages {}, floor {}x{}, built in {build_time:?}",
         win.width,
         win.height,
         win.cols,
         win.rows,
         win.cell(),
-        atlas.w,
-        atlas.h,
+        atlas.len(),
+        atlas
+            .iter()
+            .map(|p| format!("{}x{}", p.w, p.h))
+            .collect::<Vec<_>>()
+            .join("+"),
         floor.w,
         floor.h
     );
@@ -60,13 +72,6 @@ fn main() {
             "unavailable, running silent"
         }
     );
-
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        term::restore();
-        kitty::cleanup_shm();
-        default_hook(info);
-    }));
 
     let result =
         term::enter().and_then(|()| app::run(win, scale, atlas, floor, &sprites, audio.as_ref()));

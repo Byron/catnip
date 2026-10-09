@@ -327,37 +327,51 @@ pub fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync) -> Vec<T> {
     })
 }
 
-/// Shelf packer: sprites go left to right in rows; one big image at the end.
+/// Largest page side. kitty refuses images over 10,000 px per side, and big
+/// pages cost GPU memory, so the atlas spills into extra pages instead.
+pub const PAGE_SIZE: u32 = 8192;
+
+/// Shelf packer: sprites go left to right in rows, rows top to bottom, and a
+/// new page starts when one fills up.
 pub struct AtlasBuilder {
-    width: u32,
     x: u32,
     y: u32,
     row_h: u32,
-    pieces: Vec<(Rect, Image)>,
+    pages: Vec<Vec<(Rect, Image)>>,
 }
 
-/// A sprite frame inside the atlas. Sprites are drawn centered on their position.
+/// A sprite frame: a rectangle on one atlas page.
 #[derive(Clone, Copy, Debug)]
 pub struct Frame {
     pub rect: Rect,
+    pub page: usize,
+}
+
+impl Default for AtlasBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AtlasBuilder {
-    pub fn new(width: u32) -> Self {
+    pub fn new() -> Self {
         Self {
-            width,
             x: 0,
             y: 0,
             row_h: 0,
-            pieces: Vec::new(),
+            pages: vec![Vec::new()],
         }
     }
 
     pub fn add(&mut self, img: Image) -> Frame {
-        if self.x + img.w > self.width {
+        if self.x + img.w > PAGE_SIZE {
             self.x = 0;
             self.y += self.row_h + 1;
             self.row_h = 0;
+        }
+        if self.y + img.h > PAGE_SIZE {
+            self.pages.push(Vec::new());
+            (self.x, self.y, self.row_h) = (0, 0, 0);
         }
         let rect = Rect {
             x: self.x,
@@ -367,28 +381,47 @@ impl AtlasBuilder {
         };
         self.x += img.w + 1;
         self.row_h = self.row_h.max(img.h);
-        self.pieces.push((rect, img));
-        Frame { rect }
+        let page = self.pages.len() - 1;
+        self.pages[page].push((rect, img));
+        Frame { rect, page }
     }
 
-    pub fn build(self) -> Image {
-        let height = self.y + self.row_h;
-        let mut atlas = Image::new(self.width, height.max(1));
-        for (rect, img) in &self.pieces {
-            for row in 0..img.h {
-                let src = (row * img.w * 4) as usize;
-                let dst = (((rect.y + row) * self.width + rect.x) * 4) as usize;
-                atlas.rgba[dst..dst + (img.w * 4) as usize]
-                    .copy_from_slice(&img.rgba[src..src + (img.w * 4) as usize]);
-            }
-        }
-        atlas
+    /// One image per page, each only as large as its contents.
+    pub fn build(self) -> Vec<Image> {
+        self.pages
+            .into_iter()
+            .map(|pieces| {
+                let width = pieces.iter().map(|(r, _)| r.x + r.w).max().unwrap_or(1);
+                let height = pieces.iter().map(|(r, _)| r.y + r.h).max().unwrap_or(1);
+                let mut page = Image::new(width, height);
+                for (rect, img) in &pieces {
+                    for row in 0..img.h {
+                        let src = (row * img.w * 4) as usize;
+                        let dst = (((rect.y + row) * width + rect.x) * 4) as usize;
+                        page.rgba[dst..dst + (img.w * 4) as usize]
+                            .copy_from_slice(&img.rgba[src..src + (img.w * 4) as usize]);
+                    }
+                }
+                page
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atlas_spills_into_new_pages_within_the_size_limit() {
+        let mut atlas = AtlasBuilder::new();
+        // 40 sprites of 3000×3000 need several 8192² pages.
+        let frames: Vec<Frame> = (0..40).map(|_| atlas.add(Image::new(3000, 3000))).collect();
+        let pages = atlas.build();
+        assert!(pages.len() > 1);
+        assert!(pages.iter().all(|p| p.w <= PAGE_SIZE && p.h <= PAGE_SIZE));
+        assert_eq!(frames.last().unwrap().page, pages.len() - 1);
+    }
 
     #[test]
     fn scanline_fill_matches_per_sample_point_test() {

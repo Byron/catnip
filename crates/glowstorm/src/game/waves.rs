@@ -48,6 +48,7 @@ impl Game {
                     self.offer = offer;
                     self.offer_pick = 0;
                     self.state = State::Upgrade;
+                    self.state_t = 0.0;
                     self.sfx.push(Sfx::LevelUp);
                 } else {
                     self.start_wave(self.wave + 1);

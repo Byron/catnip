@@ -235,3 +235,37 @@ fn tanks_lob_volleys_from_afar_and_enrage_when_left_alone() {
         "and lobs heavy volleys at range"
     );
 }
+
+#[test]
+fn firing_or_dashing_into_the_card_screen_does_not_pick_a_card() {
+    let mut game = Game::new(19);
+    game.start();
+    game.offer = game.roll_offer();
+    game.state = State::Upgrade;
+    game.state_t = 0.0;
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mash = Input {
+        clicked: true,
+        fire: true,
+        pressed: vec![KeyCode::Char(' ')],
+        mouse: Some(v2(800.0, 5.0)),
+        mouse_moved: true,
+        ..Input::default()
+    };
+    for _ in 0..20 {
+        game.update(1.0 / 60.0, &mash, &view);
+    }
+    assert_eq!(game.state, State::Upgrade, "a card was taken blind");
+    for _ in 0..30 {
+        game.update(1.0 / 60.0, &Input::default(), &view);
+    }
+    game.update(1.0 / 60.0, &mash, &view);
+    assert_eq!(
+        game.state,
+        State::Playing,
+        "a deliberate pick after the grace works"
+    );
+}

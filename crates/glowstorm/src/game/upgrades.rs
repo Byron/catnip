@@ -108,6 +108,9 @@ impl Game {
     }
 
     pub(super) fn update_offer(&mut self, input: &Input, view: &View) {
+        // The boss usually dies mid-fire or mid-dash; don't let that same
+        // click or Space pick a card blind.
+        const GRACE: f32 = 0.6;
         let n = self.offer.len();
         let width = view.size.x * view.scale;
         let hovered = input.mouse.and_then(|m| {
@@ -137,7 +140,7 @@ impl Game {
         if input.clicked && hovered.is_some() {
             take = true;
         }
-        if take {
+        if take && self.state_t >= GRACE {
             let upgrade = self.offer[self.offer_pick];
             self.take_upgrade(upgrade);
         }

@@ -203,7 +203,7 @@ pub(super) fn draw_world_text(
                 (x - font.pad).round() as i32,
                 (top - font.pad).round() as i32,
             );
-            draw.placer.place(draw.out, frame.rect, pos, Z_POPUPS);
+            draw.placer.place(draw.out, frame, pos, Z_POPUPS);
         }
         x += font.advance;
     }
@@ -246,7 +246,7 @@ pub(super) fn draw_heat_bar(draw: &mut Draw, sprites: &Sprites, game: &Game) {
 
 pub(super) struct Draw<'a> {
     pub(super) out: &'a mut Vec<u8>,
-    pub(super) placer: &'a mut Placer,
+    pub(super) placer: &'a mut AtlasPlacer,
     pub(super) scale: f32,
     pub(super) cam: V2,
 }
@@ -256,11 +256,7 @@ impl Draw<'_> {
     pub(super) fn sprite(&mut self, frame: Frame, world: V2, z: i32) {
         let x = world.x * self.scale - self.cam.x - frame.rect.w as f32 / 2.0;
         let y = world.y * self.scale - self.cam.y - frame.rect.h as f32 / 2.0;
-        self.placer.place(
-            self.out,
-            frame.rect,
-            (x.round() as i32, y.round() as i32),
-            z,
-        );
+        self.placer
+            .place(self.out, frame, (x.round() as i32, y.round() as i32), z);
     }
 }

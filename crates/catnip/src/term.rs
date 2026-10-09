@@ -80,7 +80,13 @@ pub fn enter() -> io::Result<()> {
 
 /// Safe to call more than once (normal exit and panic hook).
 pub fn restore() {
-    let mut out = io::stdout();
+    // Write to fd 1 directly: a panic on another thread must not block on the
+    // stdout lock the frame loop is holding.
+    // SAFETY: fd 1 stays open; ManuallyDrop keeps File from closing it.
+    let mut out = std::mem::ManuallyDrop::new(unsafe {
+        <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(libc::STDOUT_FILENO)
+    });
+    let out = &mut *out;
     let _ = out.write_all(b"\x1b_Ga=d,d=A,q=2\x1b\\\x1b[?1016l\x1b]22;<\x1b\\");
     let _ = execute!(
         out,

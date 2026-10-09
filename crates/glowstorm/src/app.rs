@@ -23,14 +23,16 @@ const FRAME: Duration = Duration::from_micros(16_667);
 pub fn run(
     mut win: term::Window,
     scale: f32,
-    atlas: Image,
+    atlas: Vec<Image>,
     floor: Image,
     sprites: &Sprites,
     audio: Option<&Audio>,
 ) -> io::Result<()> {
     let mut out = io::stdout().lock();
     upload_images(&mut out, &atlas, &floor)?;
-    let mut renderer = Renderer::new((floor.w, floor.h));
+    // Fail with a clear message instead of running with invisible sprites.
+    kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
+    let mut renderer = Renderer::new((floor.w, floor.h), atlas.len());
     drop((atlas, floor));
 
     let seed = std::time::SystemTime::now()
@@ -47,7 +49,8 @@ pub fn run(
         // Input until the frame deadline.
         while event::poll(deadline.saturating_duration_since(Instant::now()))? {
             match event::read()? {
-                Event::Resize(..) => win = term::window_size()?,
+                // Keep the old size if the query fails mid-resize.
+                Event::Resize(..) => win = term::window_size().unwrap_or(win),
                 event => {
                     if handle(event, &mut input, &mut game) == Flow::Quit {
                         return Ok(());
@@ -80,10 +83,12 @@ pub fn run(
     }
 }
 
-/// The atlas, the floor, and two 1×1 overlay pixels go to kitty once.
-fn upload_images(out: &mut impl Write, atlas: &Image, floor: &Image) -> io::Result<()> {
+/// The atlas pages, the floor, and two 1×1 overlay pixels go to kitty once.
+fn upload_images(out: &mut impl Write, atlas: &[Image], floor: &Image) -> io::Result<()> {
     let mut bytes = Vec::new();
-    kitty::upload(&mut bytes, ATLAS_ID, atlas.w, atlas.h, &atlas.rgba)?;
+    for (i, page) in atlas.iter().enumerate() {
+        kitty::upload(&mut bytes, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
+    }
     kitty::upload(&mut bytes, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
     kitty::upload(&mut bytes, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
     kitty::upload(&mut bytes, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
@@ -114,8 +119,12 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                 KeyEventKind::Press => {
                     let ctrl_c =
                         code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
-                    if code == KeyCode::Char('q') || ctrl_c {
+                    if ctrl_c || (code == KeyCode::Char('q') && game.quit_allowed()) {
                         return Flow::Quit;
+                    }
+                    if code == KeyCode::Char('q') {
+                        game.pause();
+                        return Flow::Continue;
                     }
                     input.held.insert(code);
                     input.pressed.push(code);

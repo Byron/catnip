@@ -162,7 +162,7 @@ impl Renderer {
 pub(super) struct Text<'a> {
     pub(super) out: &'a mut Vec<u8>,
     pub(super) rows: &'a mut Vec<u32>,
-    pub(super) placer: &'a mut Placer,
+    pub(super) placer: &'a mut AtlasPlacer,
     pub(super) sprites: &'a Sprites,
     pub(super) win: Window,
     pub(super) scale: f32,
@@ -211,7 +211,7 @@ impl Text<'_> {
                     (x - font.pad).round() as i32,
                     (top - font.pad).round() as i32,
                 );
-                self.placer.place(self.out, frame.rect, at, Z_TEXT);
+                self.placer.place(self.out, frame, at, Z_TEXT);
             }
             x += font.advance;
         }
@@ -293,7 +293,7 @@ impl Text<'_> {
         let r = self.big(3, TextSize::Small, Hue::Violet, "PRISM");
         let cell_h = self.win.cell().1 as f32;
         let y = (3 + r) as f32 * cell_h - cell_h * 0.3;
-        let seg = self.sprites.boss_seg.rect;
+        let seg = self.sprites.boss_seg;
         let spacing = 10.0 * self.scale;
         let left = self.win.width as f32 / 2.0 - spacing * (SEGMENTS as f32 - 1.0) / 2.0;
         // The bar fills up during the entrance.
@@ -305,14 +305,17 @@ impl Text<'_> {
         let lit = (shown * SEGMENTS as f32).ceil() as usize;
         for i in 0..SEGMENTS {
             let frame = if i >= lit {
-                self.sprites.heat_off.rect
+                self.sprites.heat_off
             } else if phase >= 3 {
-                self.sprites.heat[3].rect
+                self.sprites.heat[3]
             } else {
                 seg
             };
-            let x = left + i as f32 * spacing - frame.w as f32 / 2.0;
-            let at = (x.round() as i32, (y - frame.h as f32 / 2.0).round() as i32);
+            let x = left + i as f32 * spacing - frame.rect.w as f32 / 2.0;
+            let at = (
+                x.round() as i32,
+                (y - frame.rect.h as f32 / 2.0).round() as i32,
+            );
             self.placer.place(self.out, frame, at, Z_TEXT);
         }
     }
@@ -331,7 +334,7 @@ impl Text<'_> {
                 (x - frame.rect.w as f32 / 2.0).round() as i32,
                 (center_y - frame.rect.h as f32 / 2.0).round() as i32,
             );
-            self.placer.place(self.out, frame.rect, at, Z_TEXT);
+            self.placer.place(self.out, frame, at, Z_TEXT);
             x += spacing;
         }
         let text_col = (x / cell_w as f32).ceil() as u32 + 1;

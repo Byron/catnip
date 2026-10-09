@@ -7,7 +7,7 @@ use std::{f32::consts::TAU, fmt::Write as _, io::Write};
 
 use catnip::{
     gfx::Frame,
-    kitty::{self, Placer, Rect},
+    kitty::{self, AtlasPlacer, Placer, Rect},
     term::Window,
 };
 
@@ -21,7 +21,8 @@ mod world;
 
 use world::Draw;
 
-pub const ATLAS_ID: u32 = 10;
+/// Atlas pages are uploaded as ids ATLAS_ID, ATLAS_ID + 1, …
+pub const ATLAS_ID: u32 = 100;
 pub const FLOOR_ID: u32 = 11;
 /// 1×1 translucent black pixel, stretched behind the HUD row.
 pub const SHADE_ID: u32 = 12;
@@ -54,7 +55,7 @@ pub struct Stats {
 }
 
 pub struct Renderer {
-    atlas: Placer,
+    atlas: AtlasPlacer,
     floor: Placer,
     floor_size: (u32, u32),
     text_rows: Vec<u32>,
@@ -65,9 +66,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(floor_size: (u32, u32)) -> Self {
+    pub fn new(floor_size: (u32, u32), atlas_pages: usize) -> Self {
         Self {
-            atlas: Placer::new(ATLAS_ID),
+            atlas: AtlasPlacer::new(ATLAS_ID, atlas_pages),
             floor: Placer::new(FLOOR_ID),
             floor_size,
             text_rows: Vec::new(),

@@ -11,6 +11,8 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 
+use crate::gfx::Frame;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Rect {
     pub x: u32,
@@ -63,12 +65,75 @@ pub fn cleanup_shm() {
 }
 
 /// Uploads an image without showing it; placements reference it later.
+/// Only errors are reported back (`q=1`); call `verify` afterwards to see them.
 pub fn upload(out: &mut Vec<u8>, id: u32, w: u32, h: u32, rgba: &[u8]) -> io::Result<()> {
     let name = write_shm(rgba)?;
     write!(
         out,
-        "\x1b_Ga=t,i={id},f=32,s={w},v={h},t=s,q=2;{name}\x1b\\"
+        "\x1b_Ga=t,i={id},f=32,s={w},v={h},t=s,q=1;{name}\x1b\\"
     )
+}
+
+/// Waits for the terminal to finish everything sent so far and fails if it
+/// rejected an upload, or never answers (graphics protocol unavailable, e.g.
+/// inside tmux or over SSH where shared memory isn't reachable).
+pub fn verify(out: &mut impl io::Write, timeout: std::time::Duration) -> Result<(), String> {
+    const MARKER: u32 = 0x7f00_0001;
+    // A query for a 1×1 image always gets a reply, after all earlier commands.
+    write!(out, "\x1b_Ga=q,i={MARKER},s=1,v=1,f=24,t=d;AAAA\x1b\\")
+        .and_then(|()| out.flush())
+        .map_err(|e| e.to_string())?;
+    let deadline = std::time::Instant::now() + timeout;
+    let mut received = Vec::new();
+    loop {
+        for (id, message) in replies(&received) {
+            if id == MARKER {
+                return Ok(());
+            }
+            if message != "OK" {
+                return Err(format!("the terminal rejected image {id}: {message}"));
+            }
+        }
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err("no reply from the terminal's graphics protocol \
+                        (inside tmux, over SSH, or not kitty/Ghostty?)"
+                .to_string());
+        }
+        let mut poll = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd; read into a stack buffer of the given size.
+        let ready = unsafe { libc::poll(&mut poll, 1, left.as_millis().min(1000) as i32) };
+        if ready > 0 {
+            let mut chunk = [0u8; 1024];
+            let n =
+                unsafe { libc::read(libc::STDIN_FILENO, chunk.as_mut_ptr().cast(), chunk.len()) };
+            if n > 0 {
+                received.extend_from_slice(&chunk[..n as usize]);
+            }
+        }
+    }
+}
+
+/// Complete graphics replies `ESC _G i=<id>[,…];<message> ESC \` in `bytes`.
+fn replies(bytes: &[u8]) -> Vec<(u32, String)> {
+    let text = String::from_utf8_lossy(bytes);
+    text.split("\x1b_G")
+        .skip(1)
+        .filter_map(|reply| {
+            let (body, _) = reply.split_once("\x1b\\")?;
+            let (keys, message) = body.split_once(';')?;
+            let id = keys
+                .split(',')
+                .find_map(|kv| kv.strip_prefix("i="))?
+                .parse()
+                .ok()?;
+            Some((id, message.to_string()))
+        })
+        .collect()
 }
 
 /// Uploads an image and stretches it over the whole window.
@@ -115,6 +180,38 @@ pub fn delete_placement(out: &mut Vec<u8>, image: u32, placement: u32) {
 /// Deletes an image and frees its data.
 pub fn delete_image(out: &mut Vec<u8>, image: u32) {
     let _ = write!(out, "\x1b_Ga=d,d=I,i={image},q=2\x1b\\");
+}
+
+/// Placers for every page of a sprite atlas uploaded as consecutive ids.
+pub struct AtlasPlacer {
+    pages: Vec<Placer>,
+}
+
+impl AtlasPlacer {
+    pub fn new(first_id: u32, pages: usize) -> Self {
+        Self {
+            pages: (0..pages as u32)
+                .map(|i| Placer::new(first_id + i))
+                .collect(),
+        }
+    }
+
+    pub fn begin(&mut self, window: (u32, u32), cell: (u32, u32)) {
+        self.pages.iter_mut().for_each(|p| p.begin(window, cell));
+    }
+
+    /// Places `frame` with its top-left at window pixel `at`.
+    pub fn place(&mut self, out: &mut Vec<u8>, frame: Frame, at: (i32, i32), z: i32) {
+        self.pages[frame.page].place(out, frame.rect, at, z);
+    }
+
+    pub fn finish(&mut self, out: &mut Vec<u8>) {
+        self.pages.iter_mut().for_each(|p| p.finish(out));
+    }
+
+    pub fn count(&self) -> u32 {
+        self.pages.iter().map(Placer::count).sum()
+    }
 }
 
 /// Hands out placement ids for one image, frame by frame. Every visible sprite
@@ -198,6 +295,20 @@ impl Placer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graphics_replies_are_parsed_by_id() {
+        let bytes =
+            b"junk\x1b_Gi=7;OK\x1b\\\x1b_Gi=10,p=2;EINVAL:Image too large\x1b\\\x1b_Gi=3;partial";
+        let got = replies(bytes);
+        assert_eq!(
+            got,
+            vec![
+                (7, "OK".to_string()),
+                (10, "EINVAL:Image too large".to_string())
+            ]
+        );
+    }
 
     #[test]
     fn place_splits_pixel_position_into_cell_and_offset() {
