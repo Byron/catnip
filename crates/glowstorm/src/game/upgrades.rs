@@ -38,13 +38,13 @@ impl Upgrade {
 
     pub fn blurb(self) -> &'static str {
         match self {
-            Upgrade::Spread => "two more bullets per shot, at 60% damage",
+            Upgrade::Spread => "two more bullets per shot, at a third of the damage",
             Upgrade::Pierce => "bullets pass through one more enemy",
             Upgrade::TwinDash => "hold two dash charges",
             Upgrade::Coolant => "25% less heat per shot",
             Upgrade::Shield => "an orb circles you, eats bullets, burns enemies",
             Upgrade::Heart => "+1 max heart and a full heal",
-            Upgrade::Range => "+25% range and full-damage distance",
+            Upgrade::Range => "no damage loss at range; level 2 adds 25% reach",
         }
     }
 

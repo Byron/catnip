@@ -63,7 +63,9 @@ impl Boss {
 impl Game {
     pub(super) fn spawn_boss(&mut self) {
         let level = (self.wave / 5).max(1);
-        let max_hp = 130.0 * self.difficulty.tuning().5 * (1.0 + 0.5 * (level - 1) as f32);
+        // +25% per boss level, capped at 2× like regular enemies.
+        let growth = (1.0 + 0.25 * (level - 1) as f32).min(2.0);
+        let max_hp = 130.0 * self.difficulty.tuning().5 * growth;
         let pace = self.difficulty.tuning().2;
         // Settle on the side of the arena away from the player.
         let center = v2(WORLD_W / 2.0, WORLD_H / 2.0);
@@ -379,8 +381,7 @@ impl Game {
         self.spawns.clear();
 
         for (offset, kind) in [
-            (v2(-50.0, 0.0), PickupKind::Heart),
-            (v2(50.0, 0.0), PickupKind::Heart),
+            (v2(0.0, -50.0), PickupKind::Heart),
             (v2(0.0, 50.0), PickupKind::Rapid),
         ] {
             self.pickups.push(Pickup {
@@ -397,7 +398,7 @@ impl Boss {
     fn rest(&mut self) {
         let phase = self.phase();
         self.pattern = Pattern::Rest;
-        self.pattern_t = (1.7 - 0.3 * phase as f32).max(0.6) / self.pace;
+        self.pattern_t = (1.3 - 0.3 * phase as f32).max(0.5) / self.pace;
         self.windup = 0.0;
     }
 }

@@ -23,7 +23,8 @@ impl Game {
             self.boss_pending = 2.6;
             self.sfx.push(Sfx::Siren);
         } else {
-            self.budget = ((6 + 4 * wave) as f32 * self.difficulty.tuning().4).round() as i32;
+            self.budget = ((6 + 4 * self.effective_wave()) as f32 * self.difficulty.tuning().4)
+                .round() as i32;
             self.banner = 2.0;
             self.sfx.push(Sfx::Wave);
         }
@@ -99,19 +100,43 @@ impl Game {
         }
     }
 
+    /// Hard and Extreme start where Medium would be a wave or two in, so
+    /// their opening waves aren't a quiet warm-up.
+    pub(super) fn effective_wave(&self) -> u32 {
+        self.wave
+            + match self.difficulty {
+                Difficulty::Medium => 0,
+                Difficulty::Hard => 1,
+                Difficulty::Extreme => 2,
+            }
+    }
+
     pub(super) fn spawn_group(&mut self) {
+        let wave = self.effective_wave();
         let mut options = vec![Kind::Chaser];
-        if self.wave >= 2 {
+        if wave >= 2 {
             options.push(Kind::Swarm);
         }
-        if self.wave >= 3 {
+        if wave >= 3 {
             options.push(Kind::Shooter);
         }
-        if self.wave >= 4 {
+        if wave >= 4 {
             options.push(Kind::Tank);
         }
         options.retain(|k| k.cost() <= self.budget);
-        let kind = options[(self.rng.next() as usize) % options.len()];
+        // Tanks are picked half as often: at cost 6 they'd otherwise eat about
+        // half of every budget, and their volleys would dominate the wave.
+        let weight = |k: &Kind| if *k == Kind::Tank { 0.5 } else { 1.0 };
+        let total: f32 = options.iter().map(weight).sum();
+        let mut roll = self.rng.unit() * total;
+        let mut kind = options[0];
+        for k in &options {
+            kind = *k;
+            roll -= weight(k);
+            if roll < 0.0 {
+                break;
+            }
+        }
         self.budget -= kind.cost();
 
         // Somewhere inside the arena, not on top of the player.

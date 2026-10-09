@@ -170,6 +170,7 @@ fn piercing_bullet_hits_two_enemies_in_a_line() {
         damage: 1.0,
         pierce: 1,
         last_hit: 0,
+        falloff: true,
     });
     for _ in 0..12 {
         game.update_bullets(1.0 / 60.0);
@@ -206,7 +207,7 @@ fn beating_the_boss_pays_out_and_moves_to_the_next_wave() {
     run(&mut game, 0.5);
     assert!(game.boss.is_none(), "boss should be gone");
     assert!(game.score >= score + 1500, "boss bounty paid");
-    assert!(game.pickups.len() >= 3, "boss drops loot");
+    assert!(game.pickups.len() >= 2, "boss drops a heart and rapid fire");
     run(&mut game, 6.0);
     assert_eq!(game.state, State::Upgrade, "upgrade cards after the boss");
 }

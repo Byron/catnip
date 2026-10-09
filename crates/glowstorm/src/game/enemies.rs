@@ -139,9 +139,11 @@ impl Game {
     }
 
     /// Multiplies attack cooldowns: below 1 means enemies attack more often.
+    /// The wave ramp floors at 0.55; the difficulty factor applies after the
+    /// floor so Extreme stays faster than Medium in late waves too.
     pub(super) fn enemy_cooldown_scale(&self) -> f32 {
-        let rate = self.difficulty.tuning().3 * (1.0 + 0.04 * self.wave.saturating_sub(1) as f32);
-        (1.0 / rate).max(0.45)
+        let ramp = (1.0 / (1.0 + 0.04 * self.wave.saturating_sub(1) as f32)).max(0.55);
+        ramp / self.difficulty.tuning().3
     }
 
     pub(super) fn add_enemy(&mut self, kind: Kind, pos: V2, vel: V2, elite: bool) {
@@ -176,7 +178,12 @@ impl Game {
         let chasing = self.state == State::Playing;
         let speedup = self.enemy_speed_scale();
         let cooldown = self.enemy_cooldown_scale();
-        let fan = self.wave >= 6;
+        // Shooter fans phase in: 30% of volleys at wave 6, +15% per wave.
+        let fan_chance = if self.wave >= 6 {
+            0.3 + 0.15 * (self.wave - 6) as f32
+        } else {
+            0.0
+        };
         // Tanks shouldn't be the safe thing to leave for last: once nothing
         // else is left in the wave, they enrage.
         let only_tanks = !self.enemies.is_empty()
@@ -234,7 +241,8 @@ impl Game {
                 (Kind::Swarm, _) => {
                     // Flank: come in at an angle from either side, converge up close.
                     let side = if e.phase > TAU / 2.0 { 1.0 } else { -1.0 };
-                    let spread = ((dist - 120.0) / 450.0).clamp(0.0, 1.0);
+                    // Capped so swarms can't orbit a circling player forever.
+                    let spread = 0.6 * ((dist - 120.0) / 450.0).clamp(0.0, 1.0);
                     let heading = V2::from_angle(dir.angle() + side * spread);
                     let wobble = dir.perp() * ((self.time * 7.0 + e.phase).sin() * 90.0);
                     desired = heading * 330.0 * speedup + wobble;
@@ -266,7 +274,7 @@ impl Game {
                         let aim = (target + target_vel * lead - e.pos).norm();
                         let spread: &[f32] = if e.elite {
                             &[-0.44, -0.22, 0.0, 0.22, 0.44]
-                        } else if fan {
+                        } else if self.rng.chance(fan_chance) {
                             &[-0.22, 0.0, 0.22]
                         } else {
                             &[0.0]

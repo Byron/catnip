@@ -72,10 +72,10 @@ pub(super) const HEAT_PER_SHOT: f32 = 0.075;
 pub(super) const HEAT_COOLING: f32 = 0.35;
 
 /// Cools from 1.0 to HEAT_RESUME in one second.
-pub(super) const OVERHEAT_COOLING: f32 = 0.7;
+pub(super) const OVERHEAT_COOLING: f32 = 0.35;
 
 /// After overheating, firing resumes once heat drops to this.
-pub(super) const HEAT_RESUME: f32 = 0.3;
+pub(super) const HEAT_RESUME: f32 = 0.65;
 
 pub(super) const DASH_SPEED: f32 = 1350.0;
 
@@ -219,18 +219,21 @@ impl Game {
             let aim = p.aim + rng.range(-spread, spread);
             let dir = V2::from_angle(aim);
             let muzzle = p.pos + dir * 22.0;
-            let range = BULLET_RANGE * (1.0 + 0.25 * f32::from(p.upgrades.level(Upgrade::Range)));
+            // Long Range: level 1 removes damage falloff, level 2 adds reach.
+            let long_range = p.upgrades.level(Upgrade::Range);
+            let range = BULLET_RANGE * if long_range >= 2 { 1.25 } else { 1.0 };
+            let falloff = long_range == 0;
             let pierce = p.upgrades.level(Upgrade::Pierce);
             // (angle offset, damage) per bullet of a shot.
             let pattern: &[(f32, f32)] = match p.upgrades.level(Upgrade::Spread) {
                 0 => &[(0.0, 1.0)],
-                1 => &[(0.0, 1.0), (-0.14, 0.6), (0.14, 0.6)],
+                1 => &[(0.0, 1.0), (-0.14, 0.35), (0.14, 0.35)],
                 _ => &[
                     (0.0, 1.0),
-                    (-0.14, 0.6),
-                    (0.14, 0.6),
-                    (-0.28, 0.5),
-                    (0.28, 0.5),
+                    (-0.14, 0.35),
+                    (0.14, 0.35),
+                    (-0.28, 0.3),
+                    (0.28, 0.3),
                 ],
             };
             for &(offset, damage) in pattern {
@@ -244,6 +247,7 @@ impl Game {
                     damage,
                     pierce,
                     last_hit: 0,
+                    falloff,
                 });
             }
             sfx.push(Sfx::Shoot);

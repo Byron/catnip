@@ -16,6 +16,20 @@ pub struct Bullet {
     pub(super) pierce: u8,
     /// Last enemy hit, so a piercing bullet doesn't hit it twice.
     pub(super) last_hit: u32,
+    /// Loses damage with distance (off with Long Range).
+    pub(super) falloff: bool,
+}
+
+impl Bullet {
+    /// Damage multiplier from distance flown and the shot's spread share.
+    fn strength(&self) -> f32 {
+        let range = if self.falloff {
+            bullet_damage(self.traveled, self.range)
+        } else {
+            1.0
+        };
+        range * self.damage
+    }
 }
 
 pub(super) const BULLET_SPEED: f32 = 1250.0;
@@ -53,7 +67,7 @@ impl Game {
                     && e.id != b.last_hit
                     && segment_distance(e.pos, b.prev, b.pos) < e.kind.radius() + 5.0
             }) {
-                let damage = bullet_damage(b.traveled, b.range) * power * b.damage;
+                let damage = b.strength() * power;
                 e.hp -= damage;
                 e.flash = 0.07;
                 let knock = if e.kind == Kind::Tank { 30.0 } else { 160.0 };
@@ -78,7 +92,7 @@ impl Game {
                 let damage = if boss.entering > 0.0 {
                     0.0
                 } else {
-                    bullet_damage(b.traveled, b.range) * power * b.damage
+                    b.strength() * power
                 };
                 boss.hp -= damage;
                 boss.flash = 0.05;
