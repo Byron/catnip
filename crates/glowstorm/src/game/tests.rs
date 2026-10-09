@@ -43,8 +43,8 @@ fn holding_fire_heats_up_gradually_then_overheats() {
         heat > 0.25 && heat < 0.7 && !overheated,
         "after 1.5 s: {heat}"
     );
-    let (_, overheated) = run(&mut game, &input, 1.5);
-    assert!(overheated, "should overheat within 3 s of continuous fire");
+    let (_, overheated) = run(&mut game, &input, 2.5);
+    assert!(overheated, "should overheat within 4 s of continuous fire");
     let (heat, overheated) = run(&mut game, &released, 1.5);
     assert!(
         !overheated && heat <= HEAT_RESUME,

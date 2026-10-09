@@ -14,7 +14,7 @@ use crossterm::event::{
 use crate::{
     art::Sprites,
     game::{Game, Input, V2, View, v2},
-    render::{ATLAS_ID, FLASH_ID, FLOOR_ID, Renderer, SHADE_ID, Stats},
+    render::{ATLAS_ID, FLASH_ID, FLOOR_ID, Renderer, SHADE_ID, Stats, VOID_ID},
     sound::Audio,
 };
 
@@ -92,6 +92,7 @@ fn upload_images(out: &mut impl Write, atlas: &[Image], floor: &Image) -> io::Re
     kitty::upload(&mut bytes, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
     kitty::upload(&mut bytes, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
     kitty::upload(&mut bytes, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
+    kitty::upload(&mut bytes, VOID_ID, 1, 1, &[3, 4, 10, 255])?;
     out.write_all(&bytes)?;
     out.flush()
 }

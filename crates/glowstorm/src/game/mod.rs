@@ -328,11 +328,14 @@ impl Game {
     }
 
     fn follow(&mut self, target: V2, view: &View, dt: f32, speed: f32) {
+        // The camera may look up to 35% of the view past a wall, so the ship
+        // never sits at the window's edge and aiming at a corner doesn't push
+        // the mouse off the window.
         let clamp_axis = |center: f32, view: f32, world: f32| {
             if view >= world {
                 (world - view) / 2.0
             } else {
-                (center - view / 2.0).clamp(0.0, world - view)
+                (center - view / 2.0).clamp(-0.35 * view, world - 0.65 * view)
             }
         };
         let goal = v2(

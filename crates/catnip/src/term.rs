@@ -74,7 +74,8 @@ pub fn enter() -> io::Result<()> {
         EnableFocusChange
     )?;
     // 1016: mouse reports in pixels instead of cells. OSC 22: crosshair pointer.
-    out.write_all(b"\x1b[?1016h\x1b]22;>crosshair\x1b\\")?;
+    // The plain OSC 22 form; Ghostty ignores kitty's push (`>`) variant.
+    out.write_all(b"\x1b[?1016h\x1b]22;crosshair\x1b\\")?;
     out.flush()
 }
 
@@ -87,7 +88,7 @@ pub fn restore() {
         <std::fs::File as std::os::fd::FromRawFd>::from_raw_fd(libc::STDOUT_FILENO)
     });
     let out = &mut *out;
-    let _ = out.write_all(b"\x1b_Ga=d,d=A,q=2\x1b\\\x1b[?1016l\x1b]22;<\x1b\\");
+    let _ = out.write_all(b"\x1b_Ga=d,d=A,q=2\x1b\\\x1b[?1016l\x1b]22;default\x1b\\");
     let _ = execute!(
         out,
         DisableFocusChange,

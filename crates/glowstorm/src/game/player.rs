@@ -69,10 +69,10 @@ pub(super) const DRAG: f32 = 7.0;
 
 pub(super) const HEAT_PER_SHOT: f32 = 0.075;
 
-pub(super) const HEAT_COOLING: f32 = 0.35;
+pub(super) const HEAT_COOLING: f32 = 0.42;
 
 /// Cools from 1.0 to HEAT_RESUME in one second.
-pub(super) const OVERHEAT_COOLING: f32 = 0.35;
+pub(super) const OVERHEAT_COOLING: f32 = HEAT_COOLING;
 
 /// After overheating, firing resumes once heat drops to this.
 pub(super) const HEAT_RESUME: f32 = 0.65;

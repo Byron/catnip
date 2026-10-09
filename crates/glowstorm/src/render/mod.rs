@@ -28,8 +28,12 @@ pub const FLOOR_ID: u32 = 11;
 pub const SHADE_ID: u32 = 12;
 /// 1×1 translucent white pixel for screen flashes.
 pub const FLASH_ID: u32 = 13;
+/// 1×1 opaque dark pixel behind the floor: the void past the arena walls,
+/// whatever the terminal's own background color is.
+pub const VOID_ID: u32 = 14;
 
 // Negative z keeps images below the text layer (HUD, banners).
+const Z_VOID: i32 = -1_000_001;
 const Z_FLOOR: i32 = -1_000_000;
 const Z_MOTES: i32 = -950;
 const Z_RINGS: i32 = -900;
@@ -100,6 +104,11 @@ impl Renderer {
             cam,
         };
 
+        let _ = write!(
+            draw.out,
+            "\x1b[1;1H\x1b_Ga=p,i={VOID_ID},p=1,c={},r={},z={Z_VOID},C=1,q=2\x1b\\",
+            win.cols, win.rows
+        );
         // The whole arena is one uploaded image; scrolling it is one placement.
         let (fw, fh) = self.floor_size;
         self.floor.place(
