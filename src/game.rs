@@ -326,12 +326,13 @@ const FULL_DAMAGE_RANGE: f32 = 170.0;
 const MIN_DAMAGE: f32 = 0.3;
 const HEAT_PER_SHOT: f32 = 0.075;
 const HEAT_COOLING: f32 = 0.35;
-const OVERHEAT_COOLING: f32 = 0.6;
+/// Cools from 1.0 to HEAT_RESUME in one second.
+const OVERHEAT_COOLING: f32 = 0.7;
 /// After overheating, firing resumes once heat drops to this.
 const HEAT_RESUME: f32 = 0.3;
 const DASH_SPEED: f32 = 1350.0;
 const DASH_TIME: f32 = 0.17;
-pub const DASH_COOLDOWN: f32 = 1.6;
+pub const DASH_COOLDOWN: f32 = 1.3;
 const SPAWN_TIME: f32 = 0.9;
 const MAX_PARTICLES: usize = 900;
 const RAPID_TIME: f32 = 7.0;

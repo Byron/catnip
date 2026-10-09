@@ -31,7 +31,6 @@ const Z_ORBS: i32 = -350;
 const Z_PARTICLES: i32 = -300;
 const Z_SHADE: i32 = -100;
 const Z_DIM: i32 = -80;
-const Z_RETICLE: i32 = -40;
 const Z_TEXT: i32 = -50;
 
 pub struct Stats {
@@ -61,7 +60,6 @@ impl Renderer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn frame(
         &mut self,
         out: &mut Vec<u8>,
@@ -70,7 +68,6 @@ impl Renderer {
         scale: f32,
         win: Window,
         stats: &Stats,
-        mouse: Option<V2>,
     ) {
         out.extend_from_slice(b"\x1b[?2026h");
         let cell = win.cell();
@@ -166,14 +163,6 @@ impl Renderer {
         }
         if game.state == State::Playing && (p.heat > 0.01 || p.overheated) {
             draw_heat_bar(&mut draw, sprites, game);
-        }
-        if let (State::Playing, Some(m)) = (game.state, mouse) {
-            let r = sprites.reticle.rect;
-            let at = (
-                (m.x - r.w as f32 / 2.0).round() as i32,
-                (m.y - r.h as f32 / 2.0).round() as i32,
-            );
-            draw.placer.place(draw.out, r, at, Z_RETICLE);
         }
 
         for orb in &game.orbs {

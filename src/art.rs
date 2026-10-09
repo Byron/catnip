@@ -5,6 +5,7 @@ use std::f32::consts::{PI, TAU};
 
 use catnip::font;
 use catnip::gfx::{AtlasBuilder, Color, Frame, Image, Mask, WHITE, glow_dot, hex, neon, rotate};
+use catnip::term::Window;
 
 pub const WORLD_W: f32 = 2400.0;
 pub const WORLD_H: f32 = 1500.0;
@@ -81,7 +82,6 @@ pub struct Sprites {
     pub bullet_faded: Vec<Frame>,
     /// HUD lives: [full, empty].
     pub hud_heart: [Frame; 2],
-    pub reticle: Frame,
     /// Heat bar segments: lit cool → hot, then unlit.
     pub heat: [Frame; 4],
     pub heat_off: Frame,
@@ -177,9 +177,17 @@ fn build_font(atlas: &mut AtlasBuilder, s: f32, size: TextSize, hue: Hue) -> Fon
     }
 }
 
-/// Pixels per logical unit, chosen so roughly 900 units fit the window height.
-pub fn scale_for(window_height: u32) -> f32 {
-    (window_height as f32 / 900.0).clamp(0.5, 3.5)
+/// Pixels per logical unit. Follows the cell height (font size × display
+/// density) so the game looks the same size in any window and terminal; the
+/// window only decides how much of the arena is visible, within limits.
+pub fn scale_for(win: Window) -> f32 {
+    const CELL_PX_PER_UNIT: f32 = 19.1;
+    let height = win.height as f32;
+    let (_, cell_h) = win.cell();
+    // Show between 600 and 1300 units vertically, whatever the font size.
+    (cell_h as f32 / CELL_PX_PER_UNIT)
+        .clamp(height / 1300.0, height / 600.0)
+        .clamp(0.5, 3.5)
 }
 
 /// Builds one square neon sprite of logical `radius`, drawn by `draw` into
@@ -390,15 +398,6 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         atlas.add(neon_sprite(s, 8.0, hex(0x5a2a3a), heart_shape(1.0)).with_alpha(0.6)),
     ];
 
-    let reticle = atlas.add(neon_sprite(s, 14.0, hex(0xd8fbff), |l, _, c, r| {
-        l.stroke_circle(c, r * 0.62, line(1.8));
-        for k in 0..4 {
-            let ends = rotate(&[(0.82, 0.0), (1.15, 0.0)], k as f32 * TAU / 4.0, c, r);
-            l.line(ends[0], ends[1], line(2.0));
-        }
-        l.fill_circle(c, r * 0.08, 1.0);
-    }));
-
     let segment = |color: Color| {
         let (w, h) = (8.0 * s, 5.0 * s);
         let pad = (6.0 * s).ceil();
@@ -450,7 +449,6 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         bolt,
         bullet_faded,
         hud_heart,
-        reticle,
         heat,
         heat_off,
         fonts: FONT_STYLES

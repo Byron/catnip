@@ -40,7 +40,7 @@ fn main() {
 
     println!("building sprites…");
     let started = Instant::now();
-    let scale = art::scale_for(win.height);
+    let scale = art::scale_for(win);
     let (atlas, sprites) = art::build_sprites(scale);
     let floor = art::build_floor(scale);
     let build_time = started.elapsed();
@@ -48,8 +48,16 @@ fn main() {
     let log = std::env::temp_dir().join("glowstorm.log");
     let _ = term::redirect_stderr(&log);
     eprintln!(
-        "window {}x{} px, scale {scale:.2}, atlas {}x{}, floor {}x{}, built in {build_time:?}",
-        win.width, win.height, atlas.w, atlas.h, floor.w, floor.h
+        "window {}x{} px, {}x{} cells of {:?} px, scale {scale:.2}, atlas {}x{}, floor {}x{}, built in {build_time:?}",
+        win.width,
+        win.height,
+        win.cols,
+        win.rows,
+        win.cell(),
+        atlas.w,
+        atlas.h,
+        floor.w,
+        floor.h
     );
     let audio = Audio::open();
     eprintln!(
@@ -230,7 +238,7 @@ fn run(
         }
 
         frame.clear();
-        renderer.frame(&mut frame, &game, sprites, scale, win, &stats, input.mouse);
+        renderer.frame(&mut frame, &game, sprites, scale, win, &stats);
         out.write_all(&frame)?;
         out.flush()?;
 
