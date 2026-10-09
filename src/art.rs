@@ -21,6 +21,8 @@ pub const RING_FRAMES: usize = 9;
 pub const SPARK_SIZES: [f32; 3] = [5.0, 9.0, 15.0];
 pub const BOSS_SHELL_FRAMES: usize = 16;
 pub const BOSS_CORE_FRAMES: usize = 12;
+pub const AURA_FRAMES: usize = 8;
+const AURA_DASHES: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hue {
@@ -98,6 +100,9 @@ pub struct Sprites {
     pub boss_seg: Frame,
     /// Dim drifting background specks: [cyan, violet].
     pub mote: [Frame; 2],
+    /// Rotating gold dashed rings marking elites: [small, big].
+    pub aura: [Vec<Frame>; 2],
+    pub shield: Frame,
     fonts: Vec<(TextSize, Hue, Font)>,
 }
 
@@ -482,6 +487,31 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         },
     );
 
+    // Elite aura: a dashed gold ring that turns slowly.
+    let aura = [30.0, 46.0].map(|radius| {
+        rotations(
+            &mut atlas,
+            s,
+            radius,
+            hex(0xffc94d),
+            AURA_FRAMES,
+            TAU / AURA_DASHES as f32,
+            &|l, _, c, r, angle| {
+                for k in 0..AURA_DASHES {
+                    let a0 = angle + k as f32 * TAU / AURA_DASHES as f32;
+                    let ends = rotate(&[(1.0, 0.0), ((0.35f32).cos(), (0.35f32).sin())], a0, c, r);
+                    l.line(ends[0], ends[1], line(2.4));
+                }
+            },
+        )
+        .normal
+    });
+    let shield = atlas.add(neon_sprite(s, 9.0, Hue::Cyan.color(), |l, b, c, r| {
+        b.fill_circle(c, r, 1.0);
+        l.stroke_circle(c, r * 0.85, line(2.2));
+        l.fill_circle(c, r * 0.35, 1.0);
+    }));
+
     let mote = [Hue::Cyan, Hue::Violet]
         .map(|h| atlas.add(glow_dot((7.0 * s) as u32, h.color(), 0.2).with_alpha(0.45)));
 
@@ -522,6 +552,8 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         boss_core,
         boss_seg,
         mote,
+        aura,
+        shield,
         fonts: FONT_STYLES
             .iter()
             .map(|&(size, hue)| (size, hue, build_font(&mut atlas, s, size, hue)))

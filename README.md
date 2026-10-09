@@ -36,6 +36,11 @@ chasers lunge, swarms flank, shooters lead their shots, and tanks slam out a
 shockwave when you get close. Every fifth wave, PRISM arrives: a three-phase
 boss with bullet rings, spirals, charges and summoned minions.
 
+From wave 6, rare elite enemies show up with a gold ring: three times the
+health, a nastier attack, and guaranteed loot. After each boss you pick one of
+three upgrades: spread shot, piercing bullets, twin dash, coolant, a shield orb,
+an extra heart, or longer range.
+
 Pick Medium, Hard or Extreme on the title screen. Harder settings mean fewer
 hearts and tougher, faster, more numerous enemies, and pay up to 2× the score.
 Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
@@ -91,5 +96,6 @@ cargo test
 cargo clippy --all-targets
 ```
 
-`GLOWSTORM_WAVE=6` starts at wave 6 and `GLOWSTORM_GOD=1` turns off damage.
+`GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` turns off damage, and
+`GLOWSTORM_CARDS=1` opens the upgrade screen right away.
 Runs with either set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.

@@ -265,6 +265,7 @@ impl Game {
                         kind,
                         pos: at,
                         t: SPAWN_TIME,
+                        elite: false,
                     });
                     self.rings.push(Ring {
                         pos: at,

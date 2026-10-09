@@ -11,7 +11,7 @@ use catnip::{
 
 use crate::{
     art::{self, Hue, Sprites, TextSize},
-    game::{BULLET_RANGE, Difficulty, Game, Kind, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2},
+    game::{Difficulty, Game, Kind, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2, card_span},
 };
 
 pub const ATLAS_ID: u32 = 10;
@@ -37,6 +37,7 @@ const Z_POPUPS: i32 = -200;
 const Z_FLASH: i32 = -90;
 const Z_SHADE: i32 = -100;
 const Z_DIM: i32 = -80;
+const Z_CARD: i32 = -70;
 const Z_TEXT: i32 = -50;
 
 pub struct Stats {
@@ -52,6 +53,7 @@ pub struct Renderer {
     text_rows: Vec<u32>,
     dimmed: bool,
     flashing: bool,
+    cards_shown: bool,
     pub sprites_drawn: u32,
 }
 
@@ -64,6 +66,7 @@ impl Renderer {
             text_rows: Vec::new(),
             dimmed: false,
             flashing: false,
+            cards_shown: false,
             sprites_drawn: 0,
         }
     }
@@ -164,6 +167,11 @@ impl Renderer {
                 _ => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 4.0),
             };
             draw.sprite(frames[k], e.pos + shudder, Z_ENEMIES);
+            if e.elite {
+                let aura = &sprites.aura[usize::from(e.kind == Kind::Tank)];
+                let k = art::angle_frame(game.time * 1.5 + e.phase, art::AURA_FRAMES, TAU / 10.0);
+                draw.sprite(aura[k], e.pos, Z_ENEMIES - 1);
+            }
         }
 
         if let Some(b) = &game.boss {
@@ -171,7 +179,7 @@ impl Renderer {
         }
 
         // Shockwaves: a ring of sparks, thinning as it expands.
-        for w in &game.shockwaves {
+        for w in game.shockwaves.iter().filter(|w| w.r > 0.0) {
             let count = 44;
             let size = if w.r < SHOCK_RADIUS * 0.6 { 2 } else { 1 };
             for i in 0..count {
@@ -188,7 +196,7 @@ impl Renderer {
         for b in &game.bullets {
             let k = art::angle_frame(b.vel.angle(), art::BULLET_ANGLES, TAU);
             // Dimmer once damage has mostly fallen off.
-            let frames = if b.traveled > BULLET_RANGE * 0.55 {
+            let frames = if b.traveled > b.range * 0.55 {
                 &sprites.bullet_faded
             } else {
                 &sprites.bullet
@@ -198,9 +206,14 @@ impl Renderer {
 
         let p = &game.player;
         let blink = p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
-        if matches!(game.state, State::Playing | State::Paused) && !blink {
+        if matches!(game.state, State::Playing | State::Paused | State::Upgrade) && !blink {
             let k = art::angle_frame(p.aim, art::PLAYER_ANGLES, TAU);
             draw.sprite(sprites.player[k], p.pos, Z_PLAYER);
+        }
+        if matches!(game.state, State::Playing | State::Paused | State::Upgrade) {
+            for at in p.shield_orbs(game.time) {
+                draw.sprite(sprites.shield, at, Z_PLAYER);
+            }
         }
         if game.state == State::Playing && (p.heat > 0.01 || p.overheated) {
             draw_heat_bar(&mut draw, sprites, game);
@@ -279,7 +292,10 @@ impl Renderer {
             scale,
         };
 
-        if matches!(game.state, State::Playing | State::Paused | State::Dying) {
+        if matches!(
+            game.state,
+            State::Playing | State::Paused | State::Dying | State::Upgrade
+        ) {
             let _ = write!(
                 text.out,
                 "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=1,c={},r=1,z={Z_SHADE},C=1,q=2\x1b\\",
@@ -293,7 +309,7 @@ impl Renderer {
             kitty::delete_placement(text.out, SHADE_ID, 1);
         }
         // Dim the arena behind menus so their text stays readable.
-        let dim = matches!(game.state, State::Paused | State::GameOver);
+        let dim = matches!(game.state, State::Paused | State::GameOver | State::Upgrade);
         if dim {
             let _ = write!(
                 text.out,
@@ -304,6 +320,16 @@ impl Renderer {
             kitty::delete_placement(text.out, SHADE_ID, 2);
         }
         self.dimmed = dim;
+        if game.state == State::Upgrade {
+            text.cards(game);
+            self.cards_shown = true;
+        } else if self.cards_shown {
+            for id in [10, 11, 12, 20] {
+                kitty::delete_placement(text.out, SHADE_ID, id);
+            }
+            kitty::delete_placement(text.out, FLASH_ID, 2);
+            self.cards_shown = false;
+        }
         let row = |fraction: f32| ((win.rows as f32 * fraction) as u32).max(2);
         match game.state {
             State::Title => {
@@ -523,13 +549,25 @@ impl Text<'_> {
         self.rows.push(row);
     }
 
+    /// Plain text with its first character at (row, col).
+    fn at(&mut self, row: u32, col: u32, sgr: &str, s: &str) {
+        let _ = write!(self.out, "\x1b[{row};{col}H\x1b[{sgr}m{s}\x1b[0m");
+        self.rows.push(row);
+    }
+
     /// Neon sprite text centered on the window, top edge at `row`.
     /// Returns how many terminal rows it covers.
     fn big(&mut self, row: u32, size: TextSize, hue: Hue, s: &str) -> u32 {
+        let center = self.win.width as f32 / 2.0;
+        self.big_at(row, center, size, hue, s)
+    }
+
+    /// Like `big`, centered on window pixel column `center`.
+    fn big_at(&mut self, row: u32, center: f32, size: TextSize, hue: Hue, s: &str) -> u32 {
         let font = self.sprites.font(size, hue);
         let cell_h = self.win.cell().1.max(1);
         let top = (row.saturating_sub(1) * cell_h) as f32;
-        let mut x = (self.win.width as f32 - font.width(s)) / 2.0;
+        let mut x = center - font.width(s) / 2.0;
         for c in s.chars() {
             if let Some(frame) = font.glyph(c) {
                 let at = (
@@ -541,6 +579,75 @@ impl Text<'_> {
             x += font.advance;
         }
         (font.height / cell_h as f32).ceil() as u32
+    }
+
+    /// The upgrade screen: three cards, the highlighted one lit up.
+    fn cards(&mut self, game: &Game) {
+        const CARD_ROWS: u32 = 11;
+        let (cell_w, _) = self.win.cell();
+        let width = self.win.width as f32;
+        let top = ((self.win.rows as f32 * 0.18) as u32).max(3);
+        let r = top + self.big(top, TextSize::Medium, Hue::Yellow, "CHOOSE AN UPGRADE") + 2;
+        let n = game.offer.len();
+        for (i, &upgrade) in game.offer.iter().enumerate() {
+            let (left, right) = card_span(i, n, width);
+            let col = (left / cell_w as f32) as u32 + 1;
+            let cols = ((right - left) / cell_w as f32) as u32;
+            let picked = i == game.offer_pick;
+            let _ = write!(
+                self.out,
+                "\x1b[{r};{col}H\x1b_Ga=p,i={SHADE_ID},p={},c={cols},r={CARD_ROWS},z={Z_CARD},C=1,q=2\x1b\\",
+                10 + i
+            );
+            if picked {
+                let _ = write!(
+                    self.out,
+                    "\x1b[{r};{col}H\x1b_Ga=p,i={FLASH_ID},p=2,c={cols},r={CARD_ROWS},z={},C=1,q=2\x1b\\",
+                    Z_CARD + 1
+                );
+            }
+            let center = (left + right) / 2.0;
+            let hue = if picked { Hue::Yellow } else { Hue::White };
+            // Long names drop to the tiny font on narrow windows.
+            let size = if self
+                .sprites
+                .font(TextSize::Small, hue)
+                .width(upgrade.name())
+                < (right - left) * 0.9
+            {
+                TextSize::Small
+            } else {
+                TextSize::Tiny
+            };
+            let key = format!("{}", i + 1);
+            self.at(r + 1, col + cols / 2, "38;2;140;150;190", &key);
+            let name_rows = self.big_at(r + 3, center, size, hue, upgrade.name());
+            let level = game.player.upgrades.level(upgrade);
+            let status = if level == 0 {
+                "NEW".to_string()
+            } else {
+                format!("LEVEL {} → {}", level, level + 1)
+            };
+            let status_col = col + cols.saturating_sub(status.chars().count() as u32) / 2;
+            self.at(r + 4 + name_rows, status_col, "38;2;93;255;106", &status);
+            for (k, line) in wrap(upgrade.blurb(), cols.saturating_sub(4) as usize)
+                .iter()
+                .enumerate()
+            {
+                let c = col + cols.saturating_sub(line.chars().count() as u32) / 2;
+                let sgr = if picked {
+                    "1;38;2;255;255;255"
+                } else {
+                    "38;2;200;210;255"
+                };
+                self.at(r + 6 + name_rows + k as u32, c, sgr, line);
+            }
+        }
+        self.line(
+            r + CARD_ROWS + 1,
+            "1;38;2;255;225;77",
+            "1 / 2 / 3, ← →, or click a card",
+        );
     }
 
     /// Boss name and a segmented health bar under the HUD row.
@@ -611,8 +718,13 @@ impl Text<'_> {
         if p.rapid_t > 0.0 {
             let _ = write!(left, "  \x1b[38;2;255;225;77mRAPID {:.1}s", p.rapid_t);
         }
-        if p.dash_cd <= 0.0 {
-            let _ = write!(left, "  \x1b[1;38;2;61;242;255mDASH\x1b[0m");
+        let charges = if p.max_dash_charges() > 1 {
+            format!(" x{}", p.dash_charges)
+        } else {
+            String::new()
+        };
+        if p.dash_charges > 0 {
+            let _ = write!(left, "  \x1b[1;38;2;61;242;255mDASH{charges}\x1b[0m");
         } else {
             let _ = write!(left, "  \x1b[38;2;60;80;105mDASH {:.1}s\x1b[0m", p.dash_cd);
         }
@@ -626,6 +738,21 @@ impl Text<'_> {
         let _ = write!(self.out, "\x1b[1;{col}H\x1b[38;2;90;100;140m{right}\x1b[0m");
         self.rows.push(1);
     }
+}
+
+/// Greedy word wrap to `width` characters.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split(' ') {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width.max(8) => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
 }
 
 /// 12345 → "12,345"

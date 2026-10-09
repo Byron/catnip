@@ -178,6 +178,9 @@ fn run(
                     }
                 }
                 Event::Mouse(mouse) => {
+                    if matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) {
+                        input.mouse_moved = true;
+                    }
                     // Pixel mode (1016): crossterm subtracts 1 from what it thinks
                     // are 1-based cells; undo that to get kitty's pixel position.
                     input.mouse = Some(v2(
