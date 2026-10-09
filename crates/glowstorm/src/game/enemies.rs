@@ -113,8 +113,11 @@ pub const SHOCK_RADIUS: f32 = 270.0;
 pub(super) const SHOCK_SPEED: f32 = 560.0;
 
 impl Game {
+    /// Health grows 6% a wave but stops at 2×: past that, waves get harder
+    /// through numbers and aggression, not bullet sponges (see notes/design.md).
     pub(super) fn enemy_hp_scale(&self) -> f32 {
-        self.difficulty.tuning().1 * (1.0 + 0.06 * self.wave.saturating_sub(1) as f32)
+        let growth = (1.0 + 0.06 * self.wave.saturating_sub(1) as f32).min(2.0);
+        self.difficulty.tuning().1 * growth
     }
 
     pub(super) fn enemy_speed_scale(&self) -> f32 {

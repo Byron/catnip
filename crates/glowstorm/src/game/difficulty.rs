@@ -24,8 +24,8 @@ impl Difficulty {
     pub fn blurb(self) -> &'static str {
         match self {
             Difficulty::Medium => "5 hearts · the intended experience",
-            Difficulty::Hard => "4 hearts · tougher, faster, more enemies · score ×1.5",
-            Difficulty::Extreme => "3 hearts · relentless · score ×2",
+            Difficulty::Hard => "4 hearts · faster, more aggressive enemies · score ×1.5",
+            Difficulty::Extreme => "3 hearts · relentless swarms of attackers · score ×2",
         }
     }
 
@@ -33,8 +33,8 @@ impl Difficulty {
     pub(super) fn tuning(self) -> (i32, f32, f32, f32, f32, f32, f32) {
         match self {
             Difficulty::Medium => (5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
-            Difficulty::Hard => (4, 1.25, 1.1, 1.2, 1.25, 1.3, 1.5),
-            Difficulty::Extreme => (3, 1.6, 1.2, 1.4, 1.5, 1.7, 2.0),
+            Difficulty::Hard => (4, 1.15, 1.1, 1.3, 1.25, 1.3, 1.5),
+            Difficulty::Extreme => (3, 1.3, 1.2, 1.6, 1.7, 1.7, 2.0),
         }
     }
 

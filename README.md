@@ -42,14 +42,15 @@ three upgrades: spread shot, piercing bullets, twin dash, coolant, a shield orb,
 an extra heart, or longer range.
 
 Pick Medium, Hard or Extreme on the title screen. Harder settings mean fewer
-hearts and tougher, faster, more numerous enemies, and pay up to 2× the score.
+hearts and faster, more aggressive, more numerous enemies, and pay up to 2× the
+score.
 Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
 time they're twice as tough.
 
 Your gun heats up as you fire and locks for a second if it overheats, and
-shots lose damage over distance, so it pays to get close. Quick kills build a
-multiplier up to ×8 with a rising note for every kill in the chain; getting hit
-resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
+shots lose up to a quarter of their damage at long range, so it pays to get
+close. Quick kills build a multiplier up to ×8 with a rising note for every
+kill in the chain; getting hit resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
 
 ## How it works
 

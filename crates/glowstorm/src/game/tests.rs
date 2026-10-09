@@ -62,6 +62,9 @@ fn enemies_double_while_the_player_grows_a_fifth_by_wave_eleven() {
         game.power()
     );
     assert!((game.enemy_hp_scale() - 1.6).abs() < 1e-5);
+    game.wave = 40;
+    assert!((game.enemy_hp_scale() - 2.0).abs() < 1e-5, "health growth caps at 2×");
+    game.wave = 11;
     assert!(
         game.enemy_cooldown_scale() < 0.75,
         "enemies attack more often"

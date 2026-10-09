@@ -21,12 +21,12 @@ pub struct Bullet {
 pub(super) const BULLET_SPEED: f32 = 1250.0;
 
 /// Bullets fade out after this distance.
-pub const BULLET_RANGE: f32 = 620.0;
+pub const BULLET_RANGE: f32 = 800.0;
 
 /// Full damage up to this distance, then linear falloff to MIN_DAMAGE at BULLET_RANGE.
-pub(super) const FULL_DAMAGE_RANGE: f32 = 170.0;
+pub(super) const FULL_DAMAGE_RANGE: f32 = 220.0;
 
-pub(super) const MIN_DAMAGE: f32 = 0.3;
+pub(super) const MIN_DAMAGE: f32 = 0.75;
 
 pub(super) const SHIELD_DPS: f32 = 7.0;
 
