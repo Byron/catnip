@@ -96,13 +96,23 @@ fn relaunch_in_supported_terminal() -> bool {
     let mut kitty = Command::new("kitty");
     kitty
         .args(["--detach", "--start-as=maximized", "--title", "Glowstorm"])
+        // Hide the pointer as soon as it rests, and don't bring it back on
+        // movement: the game draws its own reticle.
+        .args(["-o", "mouse_hide_wait=0.01 1000 100000 no"])
         .arg(&exe);
     if quiet(kitty).status().is_ok_and(|s| s.success()) {
         return true;
     }
     // Ghostty has no --detach; spawning without waiting leaves it running.
     let mut ghostty = Command::new("ghostty");
-    ghostty.args(["--title=Glowstorm", "-e"]).arg(&exe);
+    ghostty
+        .args([
+            "--title=Glowstorm",
+            "--maximize=true",
+            "--mouse-hide-while-typing=true",
+            "-e",
+        ])
+        .arg(&exe);
     quiet(ghostty).spawn().is_ok()
 }
 
@@ -220,7 +230,7 @@ fn run(
         }
 
         frame.clear();
-        renderer.frame(&mut frame, &game, sprites, scale, win, &stats);
+        renderer.frame(&mut frame, &game, sprites, scale, win, &stats, input.mouse);
         out.write_all(&frame)?;
         out.flush()?;
 

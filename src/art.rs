@@ -77,6 +77,14 @@ pub struct Sprites {
     pub ring: Vec<Vec<Frame>>,
     pub heart: [Frame; 2],
     pub bolt: [Frame; 2],
+    /// Bullets near the end of their range, dimmer to show weaker damage.
+    pub bullet_faded: Vec<Frame>,
+    /// HUD lives: [full, empty].
+    pub hud_heart: [Frame; 2],
+    pub reticle: Frame,
+    /// Heat bar segments: lit cool → hot, then unlit.
+    pub heat: [Frame; 4],
+    pub heat_off: Frame,
     fonts: Vec<(TextSize, Hue, Font)>,
 }
 
@@ -260,12 +268,15 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
     }
 
     let mut bullet = Vec::new();
+    let mut bullet_faded = Vec::new();
     for i in 0..BULLET_ANGLES {
         let angle = i as f32 * TAU / BULLET_ANGLES as f32;
-        bullet.push(atlas.add(neon_sprite(s, 11.0, hex(0xfff3a0), |l, _, c, r| {
+        let img = neon_sprite(s, 11.0, hex(0xfff3a0), |l, _, c, r| {
             let ends = rotate(&[(-1.0, 0.0), (1.0, 0.0)], angle, c, r);
             l.line(ends[0], ends[1], line(4.0));
-        })));
+        });
+        bullet_faded.push(atlas.add(img.with_alpha(0.4)));
+        bullet.push(atlas.add(img));
     }
 
     let chaser_shape = |l: &mut Mask, b: &mut Mask, c: (f32, f32), r: f32, angle: f32| {
@@ -374,6 +385,39 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
     };
     let heart =
         [1.0, 1.15].map(|k| atlas.add(neon_sprite(s, 15.0, Hue::Red.color(), heart_shape(k))));
+    let hud_heart = [
+        atlas.add(neon_sprite(s, 8.0, Hue::Red.color(), heart_shape(1.0))),
+        atlas.add(neon_sprite(s, 8.0, hex(0x5a2a3a), heart_shape(1.0)).with_alpha(0.6)),
+    ];
+
+    let reticle = atlas.add(neon_sprite(s, 14.0, hex(0xd8fbff), |l, _, c, r| {
+        l.stroke_circle(c, r * 0.62, line(1.8));
+        for k in 0..4 {
+            let ends = rotate(&[(0.82, 0.0), (1.15, 0.0)], k as f32 * TAU / 4.0, c, r);
+            l.line(ends[0], ends[1], line(2.0));
+        }
+        l.fill_circle(c, r * 0.08, 1.0);
+    }));
+
+    let segment = |color: Color| {
+        let (w, h) = (8.0 * s, 5.0 * s);
+        let pad = (6.0 * s).ceil();
+        let (iw, ih) = ((w + pad * 2.0).ceil() as u32, (h + pad * 2.0).ceil() as u32);
+        let mut m = Mask::new(iw, ih);
+        m.fill_polygon(
+            &[
+                (pad, pad),
+                (pad + w, pad),
+                (pad + w, pad + h),
+                (pad, pad + h),
+            ],
+            1.0,
+        );
+        neon(&m, &m, color, (3.0 * s) as usize, 1.2)
+    };
+    let heat =
+        [hex(0x3df2ff), hex(0xffe14d), hex(0xff8a2b), hex(0xff3b4e)].map(|c| atlas.add(segment(c)));
+    let heat_off = atlas.add(segment(hex(0x2a3550)).with_alpha(0.7));
 
     let bolt_pts = [
         (0.2, -1.0),
@@ -404,6 +448,11 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         ring,
         heart,
         bolt,
+        bullet_faded,
+        hud_heart,
+        reticle,
+        heat,
+        heat_off,
         fonts: FONT_STYLES
             .iter()
             .map(|&(size, hue)| (size, hue, build_font(&mut atlas, s, size, hue)))

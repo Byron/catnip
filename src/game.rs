@@ -246,7 +246,8 @@ pub struct Bullet {
     pub pos: V2,
     prev: V2,
     pub vel: V2,
-    life: f32,
+    /// Distance flown so far; damage falls off with it.
+    pub traveled: f32,
 }
 
 pub struct Orb {
@@ -308,6 +309,9 @@ pub struct Player {
     dash_t: f32,
     pub rapid_t: f32,
     ghost_cd: f32,
+    /// Weapon heat, 0..1. Firing adds heat; at 1 the gun locks until it cools.
+    pub heat: f32,
+    pub overheated: bool,
 }
 
 pub const MAX_HP: i32 = 5;
@@ -315,9 +319,19 @@ const PLAYER_RADIUS: f32 = 14.0;
 const ACCEL: f32 = 3400.0;
 const DRAG: f32 = 7.0;
 const BULLET_SPEED: f32 = 1250.0;
+/// Bullets fade out after this distance.
+pub const BULLET_RANGE: f32 = 620.0;
+/// Full damage up to this distance, then linear falloff to MIN_DAMAGE at BULLET_RANGE.
+const FULL_DAMAGE_RANGE: f32 = 170.0;
+const MIN_DAMAGE: f32 = 0.3;
+const HEAT_PER_SHOT: f32 = 0.075;
+const HEAT_COOLING: f32 = 0.35;
+const OVERHEAT_COOLING: f32 = 0.6;
+/// After overheating, firing resumes once heat drops to this.
+const HEAT_RESUME: f32 = 0.3;
 const DASH_SPEED: f32 = 1350.0;
 const DASH_TIME: f32 = 0.17;
-const DASH_COOLDOWN: f32 = 0.8;
+pub const DASH_COOLDOWN: f32 = 1.6;
 const SPAWN_TIME: f32 = 0.9;
 const MAX_PARTICLES: usize = 900;
 const RAPID_TIME: f32 = 7.0;
@@ -335,6 +349,8 @@ impl Player {
             dash_t: 0.0,
             rapid_t: 0.0,
             ghost_cd: 0.0,
+            heat: 0.0,
+            overheated: false,
         }
     }
 
@@ -631,11 +647,31 @@ impl Game {
         }
 
         p.fire_cd -= dt;
+        let cooling = if p.overheated {
+            OVERHEAT_COOLING
+        } else {
+            HEAT_COOLING
+        };
+        p.heat = (p.heat - cooling * dt).max(0.0);
+        if p.overheated && p.heat <= HEAT_RESUME {
+            p.overheated = false;
+        }
         let firing = input.fire || arrows != V2::default();
-        if firing && p.fire_cd <= 0.0 {
+        if firing && p.fire_cd <= 0.0 && !p.overheated {
             let rapid = p.rapid_t > 0.0;
             let interval = if rapid { 0.055 } else { 0.11 };
             p.fire_cd = (p.fire_cd + interval).max(0.0);
+            // Rapid fire shoots twice as often for the same heat per second.
+            p.heat += if rapid {
+                HEAT_PER_SHOT / 2.0
+            } else {
+                HEAT_PER_SHOT
+            };
+            if p.heat >= 1.0 {
+                p.heat = 1.0;
+                p.overheated = true;
+                sfx.push(Sfx::Overheat);
+            }
             let spread = if rapid { 0.09 } else { 0.035 };
             let dir = V2::from_angle(p.aim + rng.range(-spread, spread));
             let muzzle = p.pos + dir * 22.0;
@@ -643,7 +679,7 @@ impl Game {
                 pos: muzzle,
                 prev: p.pos,
                 vel: dir * BULLET_SPEED + p.vel * 0.25,
-                life: 0.9,
+                traveled: 0.0,
             });
             sfx.push(Sfx::Shoot);
             let vel = p.vel;
@@ -872,15 +908,21 @@ impl Game {
         self.bullets.retain_mut(|b| {
             b.prev = b.pos;
             b.pos += b.vel * dt;
-            b.life -= dt;
+            b.traveled += (b.pos - b.prev).len();
             if let Some(e) = enemies.iter_mut().find(|e| {
                 e.hp > 0.0 && segment_distance(e.pos, b.prev, b.pos) < e.kind.radius() + 5.0
             }) {
-                e.hp -= 1.0;
+                let damage = bullet_damage(b.traveled);
+                e.hp -= damage;
                 e.flash = 0.07;
                 let knock = if e.kind == Kind::Tank { 30.0 } else { 160.0 };
-                e.vel += b.vel.norm() * knock;
-                hits.push((e.pos - b.vel.norm() * e.kind.radius(), b.vel, e.kind.hue()));
+                e.vel += b.vel.norm() * knock * damage;
+                hits.push((
+                    e.pos - b.vel.norm() * e.kind.radius(),
+                    b.vel,
+                    e.kind.hue(),
+                    damage,
+                ));
                 return false;
             }
             let lo = WALL;
@@ -888,7 +930,7 @@ impl Game {
                 wall_hits.push(b.pos);
                 return false;
             }
-            b.life > 0.0
+            b.traveled < BULLET_RANGE
         });
 
         for pos in wall_hits {
@@ -900,8 +942,9 @@ impl Game {
         if !hits.is_empty() {
             self.sfx.push(Sfx::Hit);
         }
-        for (pos, vel, hue) in hits {
-            for _ in 0..3 {
+        for (pos, vel, hue, damage) in hits {
+            // Close-range hits throw more sparks, so full damage feels heavier.
+            for _ in 0..(1 + (damage * 4.0) as usize) {
                 let v = -vel.norm() * self.rng.range(80.0, 260.0) + self.rng.dir() * 90.0;
                 self.emit(pos, v, 0.25, hue, 0);
             }
@@ -1105,6 +1148,12 @@ impl Game {
     }
 }
 
+/// Damage of a bullet that has flown `traveled` units.
+pub fn bullet_damage(traveled: f32) -> f32 {
+    let t = ((traveled - FULL_DAMAGE_RANGE) / (BULLET_RANGE - FULL_DAMAGE_RANGE)).clamp(0.0, 1.0);
+    1.0 - (1.0 - MIN_DAMAGE) * t
+}
+
 fn best_score_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -1121,6 +1170,49 @@ mod tests {
         // A 25-unit step jumps straight over a radius-10 enemy; the swept test must still catch it.
         assert!(segment_distance(v2(12.0, 0.0), v2(0.0, 0.0), v2(25.0, 0.0)) < 10.0);
         assert!(segment_distance(v2(12.0, 30.0), v2(0.0, 0.0), v2(25.0, 0.0)) > 10.0);
+    }
+
+    #[test]
+    fn damage_is_full_up_close_and_falls_off_with_distance() {
+        assert_eq!(bullet_damage(0.0), 1.0);
+        assert_eq!(bullet_damage(FULL_DAMAGE_RANGE), 1.0);
+        let mid = bullet_damage((FULL_DAMAGE_RANGE + BULLET_RANGE) / 2.0);
+        assert!(mid < 1.0 && mid > MIN_DAMAGE, "{mid}");
+        assert!((bullet_damage(BULLET_RANGE) - MIN_DAMAGE).abs() < 1e-6);
+    }
+
+    #[test]
+    fn holding_fire_heats_up_gradually_then_overheats() {
+        let mut game = Game::new(7);
+        game.start();
+        game.dev.god = true;
+        let input = Input {
+            fire: true,
+            ..Input::default()
+        };
+        let view = View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        };
+        let released = Input::default();
+        let run = |game: &mut Game, input: &Input, seconds: f32| {
+            for _ in 0..(seconds * 60.0) as usize {
+                game.update(1.0 / 60.0, input, &view);
+            }
+            (game.player.heat, game.player.overheated)
+        };
+        let (heat, overheated) = run(&mut game, &input, 1.5);
+        assert!(
+            heat > 0.25 && heat < 0.7 && !overheated,
+            "after 1.5 s: {heat}"
+        );
+        let (_, overheated) = run(&mut game, &input, 1.5);
+        assert!(overheated, "should overheat within 3 s of continuous fire");
+        let (heat, overheated) = run(&mut game, &released, 1.5);
+        assert!(
+            !overheated && heat <= HEAT_RESUME,
+            "gun unlocks after cooling: {heat}"
+        );
     }
 
     #[test]

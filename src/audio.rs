@@ -18,9 +18,10 @@ pub enum Sfx {
     Wave,
     EnemyShoot,
     GameOver,
+    Overheat,
 }
 
-const ALL: [Sfx; 10] = [
+const ALL: [Sfx; 11] = [
     Sfx::Shoot,
     Sfx::Hit,
     Sfx::Explode,
@@ -31,6 +32,7 @@ const ALL: [Sfx; 10] = [
     Sfx::Wave,
     Sfx::EnemyShoot,
     Sfx::GameOver,
+    Sfx::Overheat,
 ];
 
 pub struct Audio {
@@ -181,6 +183,11 @@ fn synth(sfx: Sfx) -> Vec<f32> {
             sweep(0.3, 784.0, 784.0, 0.2, 1.5, triangle),
         ]),
         Sfx::EnemyShoot => sweep(0.12, 520.0, 180.0, 0.08, 1.5, triangle),
+        // A hiss with a sinking buzz: the gun venting heat.
+        Sfx::Overheat => mix(
+            rumble(0.6, 0.9, 0.5, 0.25, 23),
+            sweep(0.4, 240.0, 90.0, 0.12, 1.0, square),
+        ),
         Sfx::GameOver => concat(&[
             sweep(0.25, 392.0, 380.0, 0.22, 0.6, saw),
             sweep(0.25, 330.0, 318.0, 0.22, 0.6, saw),

@@ -11,7 +11,7 @@ use catnip::{
 
 use crate::{
     art::{self, Hue, Sprites, TextSize},
-    game::{Game, Kind, MAX_HP, PickupKind, State, V2},
+    game::{BULLET_RANGE, Game, Kind, MAX_HP, PickupKind, State, V2},
 };
 
 pub const ATLAS_ID: u32 = 10;
@@ -31,6 +31,7 @@ const Z_ORBS: i32 = -350;
 const Z_PARTICLES: i32 = -300;
 const Z_SHADE: i32 = -100;
 const Z_DIM: i32 = -80;
+const Z_RETICLE: i32 = -40;
 const Z_TEXT: i32 = -50;
 
 pub struct Stats {
@@ -60,6 +61,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn frame(
         &mut self,
         out: &mut Vec<u8>,
@@ -68,6 +70,7 @@ impl Renderer {
         scale: f32,
         win: Window,
         stats: &Stats,
+        mouse: Option<V2>,
     ) {
         out.extend_from_slice(b"\x1b[?2026h");
         let cell = win.cell();
@@ -146,7 +149,13 @@ impl Renderer {
 
         for b in &game.bullets {
             let k = art::angle_frame(b.vel.angle(), art::BULLET_ANGLES, TAU);
-            draw.sprite(sprites.bullet[k], b.pos, Z_BULLETS);
+            // Dimmer once damage has mostly fallen off.
+            let frames = if b.traveled > BULLET_RANGE * 0.55 {
+                &sprites.bullet_faded
+            } else {
+                &sprites.bullet
+            };
+            draw.sprite(frames[k], b.pos, Z_BULLETS);
         }
 
         let p = &game.player;
@@ -154,6 +163,17 @@ impl Renderer {
         if matches!(game.state, State::Playing | State::Paused) && !blink {
             let k = art::angle_frame(p.aim, art::PLAYER_ANGLES, TAU);
             draw.sprite(sprites.player[k], p.pos, Z_PLAYER);
+        }
+        if game.state == State::Playing && (p.heat > 0.01 || p.overheated) {
+            draw_heat_bar(&mut draw, sprites, game);
+        }
+        if let (State::Playing, Some(m)) = (game.state, mouse) {
+            let r = sprites.reticle.rect;
+            let at = (
+                (m.x - r.w as f32 / 2.0).round() as i32,
+                (m.y - r.h as f32 / 2.0).round() as i32,
+            );
+            draw.placer.place(draw.out, r, at, Z_RETICLE);
         }
 
         for orb in &game.orbs {
@@ -176,7 +196,7 @@ impl Renderer {
             );
         }
 
-        self.text(out, game, sprites, win, stats);
+        self.text(out, game, sprites, win, stats, scale);
         self.sprites_drawn = self.atlas.count();
         self.atlas.finish(out);
         self.floor.finish(out);
@@ -190,6 +210,7 @@ impl Renderer {
         sprites: &Sprites,
         win: Window,
         stats: &Stats,
+        scale: f32,
     ) {
         for row in self.text_rows.drain(..) {
             let _ = write!(out, "\x1b[{row};1H\x1b[2K");
@@ -200,6 +221,7 @@ impl Renderer {
             placer: &mut self.atlas,
             sprites,
             win,
+            scale,
         };
 
         if matches!(game.state, State::Playing | State::Paused | State::Dying) {
@@ -288,6 +310,41 @@ impl Renderer {
     }
 }
 
+/// Ten segments under the ship; they blink red while the gun is locked.
+fn draw_heat_bar(draw: &mut Draw, sprites: &Sprites, game: &Game) {
+    const SEGMENTS: usize = 10;
+    const SPACING: f32 = 10.0;
+    let p = &game.player;
+    let lit = (p.heat * SEGMENTS as f32).ceil() as usize;
+    let hot = if p.overheated {
+        3
+    } else {
+        match p.heat {
+            h if h < 0.5 => 0,
+            h if h < 0.75 => 1,
+            h if h < 0.9 => 2,
+            _ => 3,
+        }
+    };
+    let blink_off = p.overheated && (game.time * 8.0) as i32 % 2 == 0;
+    let left = p.pos.x - SPACING * (SEGMENTS as f32 - 1.0) / 2.0;
+    for i in 0..SEGMENTS {
+        let frame = if i < lit && !blink_off {
+            sprites.heat[hot]
+        } else {
+            sprites.heat_off
+        };
+        draw.sprite(
+            frame,
+            V2 {
+                x: left + i as f32 * SPACING,
+                y: p.pos.y + 34.0,
+            },
+            Z_PLAYER,
+        );
+    }
+}
+
 struct Draw<'a> {
     out: &'a mut Vec<u8>,
     placer: &'a mut Placer,
@@ -315,6 +372,7 @@ struct Text<'a> {
     placer: &'a mut Placer,
     sprites: &'a Sprites,
     win: Window,
+    scale: f32,
 }
 
 impl Text<'_> {
@@ -350,29 +408,37 @@ impl Text<'_> {
 
     fn hud(&mut self, game: &Game, stats: &Stats, sprites: u32) {
         let p = &game.player;
-        let mut left = String::new();
-        let _ = write!(left, "\x1b[1;2H\x1b[1;38;2;255;59;78m");
+        // Lives are sprites: heart glyphs render differently (or in emoji
+        // colors) depending on the terminal's fonts.
+        let (cell_w, cell_h) = self.win.cell();
+        let spacing = 20.0 * self.scale;
+        let center_y = cell_h as f32 / 2.0;
+        let mut x = cell_w as f32 + spacing / 2.0;
         for i in 0..MAX_HP {
-            left.push_str(if i < p.hp {
-                "♥ "
-            } else {
-                "\x1b[38;2;70;40;55m♥ "
-            });
+            let frame = self.sprites.hud_heart[usize::from(i >= p.hp)];
+            let at = (
+                (x - frame.rect.w as f32 / 2.0).round() as i32,
+                (center_y - frame.rect.h as f32 / 2.0).round() as i32,
+            );
+            self.placer.place(self.out, frame.rect, at, Z_TEXT);
+            x += spacing;
         }
-        let _ = write!(left, "\x1b[0m  \x1b[1;97mSCORE {}", group(game.score));
+        let text_col = (x / cell_w as f32).ceil() as u32 + 1;
+        let mut left = String::new();
+        let _ = write!(left, "\x1b[1;{text_col}H");
+        let _ = write!(left, "\x1b[1;97mSCORE {}", group(game.score));
         if game.multiplier() > 1 {
             let _ = write!(left, "  \x1b[38;2;255;61;240m×{}", game.multiplier());
         }
         let _ = write!(left, "  \x1b[38;2;61;242;255mWAVE {}", game.wave);
         if p.rapid_t > 0.0 {
-            let _ = write!(left, "  \x1b[38;2;255;225;77m⚡ {:.1}s", p.rapid_t);
+            let _ = write!(left, "  \x1b[38;2;255;225;77mRAPID {:.1}s", p.rapid_t);
         }
-        let dash = if p.dash_cd <= 0.0 {
-            "1;38;2;61;242;255"
+        if p.dash_cd <= 0.0 {
+            let _ = write!(left, "  \x1b[1;38;2;61;242;255mDASH\x1b[0m");
         } else {
-            "38;2;50;70;90"
-        };
-        let _ = write!(left, "  \x1b[{dash}mDASH\x1b[0m");
+            let _ = write!(left, "  \x1b[38;2;60;80;105mDASH {:.1}s\x1b[0m", p.dash_cd);
+        }
         self.out.extend_from_slice(left.as_bytes());
 
         let right = format!(
