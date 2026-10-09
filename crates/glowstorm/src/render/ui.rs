@@ -78,11 +78,6 @@ impl Renderer {
                     "38;2;200;210;255",
                     "WASD move · mouse aim · hold click fire · space / right-click dash",
                 );
-                text.line(
-                    r + 1,
-                    "38;2;140;150;190",
-                    "no mouse? arrow keys aim and fire",
-                );
                 // Difficulty menu: the selected one is yellow.
                 let mut r = r + 3;
                 for d in Difficulty::ALL {

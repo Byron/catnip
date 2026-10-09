@@ -27,7 +27,6 @@ If you start it from another terminal, it opens itself in kitty (or Ghostty).
 | mouse | aim |
 | hold left click | fire |
 | Space / right click | dash |
-| arrow keys | aim and fire without a mouse |
 | Esc / P | pause |
 | Q | quit |
 

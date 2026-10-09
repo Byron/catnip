@@ -117,15 +117,7 @@ impl Game {
             axis(&[KeyCode::Char('w')], &[KeyCode::Char('s')]),
         )
         .norm();
-        // Arrow keys: keyboard-only twin-stick (aim + fire).
-        let arrows = v2(
-            axis(&[KeyCode::Left], &[KeyCode::Right]),
-            axis(&[KeyCode::Up], &[KeyCode::Down]),
-        );
-
-        if arrows != V2::default() {
-            p.aim = arrows.angle();
-        } else if let Some(mouse) = input.mouse {
+        if let Some(mouse) = input.mouse {
             let world = *cam + mouse * (1.0 / view.scale);
             p.aim = (world - p.pos).angle();
         } else if movement != V2::default() {
@@ -197,7 +189,7 @@ impl Game {
         if p.overheated && p.heat <= HEAT_RESUME {
             p.overheated = false;
         }
-        let firing = input.fire || arrows != V2::default();
+        let firing = input.fire;
         if firing && p.fire_cd <= 0.0 && !p.overheated {
             let rapid = p.rapid_t > 0.0;
             let interval = if rapid { 0.055 } else { 0.11 };
