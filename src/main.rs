@@ -10,10 +10,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use catnip::{audio::Audio, gfx::Image, kitty, term};
 use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
-use catnip::{audio::Audio, gfx::Image, kitty, term};
 
 use game::{Game, Input, V2, View, v2};
 use render::{ATLAS_ID, FLOOR_ID, Renderer, SHADE_ID, Stats};
@@ -21,13 +21,13 @@ use render::{ATLAS_ID, FLOOR_ID, Renderer, SHADE_ID, Stats};
 const FRAME: Duration = Duration::from_micros(16_667);
 
 fn main() {
-    if !term::in_kitty() {
-        // Started from another terminal: open ourselves in a new kitty window.
-        if std::env::var_os("GLOWSTORM_RELAUNCHED").is_none() && relaunch_in_kitty() {
-            println!("Glowstorm opened in a new kitty window.");
+    if !term::supported_terminal() {
+        // Started from another terminal: open ourselves in kitty (or Ghostty).
+        if std::env::var_os("GLOWSTORM_RELAUNCHED").is_none() && relaunch_in_supported_terminal() {
+            println!("Glowstorm opened in a new window.");
             return;
         }
-        eprintln!("Glowstorm needs the kitty terminal: https://sw.kovidgoyal.net/kitty/");
+        eprintln!("Glowstorm needs kitty (https://sw.kovidgoyal.net/kitty/) or Ghostty.");
         std::process::exit(1);
     }
     let win = match term::window_size() {
@@ -78,20 +78,32 @@ fn main() {
     }
 }
 
-fn relaunch_in_kitty() -> bool {
+fn relaunch_in_supported_terminal() -> bool {
+    use std::process::{Command, Stdio};
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
-    std::process::Command::new("kitty")
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let quiet = |mut cmd: Command| {
+        cmd.args(&args)
+            .env("GLOWSTORM_RELAUNCHED", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd
+    };
+
+    let mut kitty = Command::new("kitty");
+    kitty
         .args(["--detach", "--start-as=maximized", "--title", "Glowstorm"])
-        .arg(exe)
-        .args(std::env::args_os().skip(1))
-        .env("GLOWSTORM_RELAUNCHED", "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .arg(&exe);
+    if quiet(kitty).status().is_ok_and(|s| s.success()) {
+        return true;
+    }
+    // Ghostty has no --detach; spawning without waiting leaves it running.
+    let mut ghostty = Command::new("ghostty");
+    ghostty.args(["--title=Glowstorm", "-e"]).arg(&exe);
+    quiet(ghostty).spawn().is_ok()
 }
 
 fn run(

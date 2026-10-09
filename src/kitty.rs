@@ -117,15 +117,6 @@ pub fn delete_image(out: &mut Vec<u8>, image: u32) {
     let _ = write!(out, "\x1b_Ga=d,d=I,i={image},q=2\x1b\\");
 }
 
-/// Draws text with kitty's text sizing protocol (OSC 66): `scale` cells tall
-/// and `scale` cells wide per character.
-pub fn big_text(out: &mut Vec<u8>, (row, col): (u32, u32), scale: u32, sgr: &str, text: &str) {
-    let _ = write!(
-        out,
-        "\x1b[{row};{col}H\x1b[{sgr}m\x1b]66;s={scale};{text}\x07\x1b[0m"
-    );
-}
-
 /// Hands out placement ids for one image, frame by frame. Every visible sprite
 /// is re-placed each frame using ids 1..n; ids left over from a busier previous
 /// frame get deleted in `finish`.

@@ -49,9 +49,13 @@ pub fn window_size() -> io::Result<Window> {
     })
 }
 
-pub fn in_kitty() -> bool {
+/// kitty, or Ghostty (which implements the kitty graphics and keyboard protocols).
+pub fn supported_terminal() -> bool {
+    let term = std::env::var("TERM").unwrap_or_default();
     std::env::var_os("KITTY_WINDOW_ID").is_some()
-        || std::env::var("TERM").is_ok_and(|t| t == "xterm-kitty")
+        || std::env::var("TERM_PROGRAM").is_ok_and(|p| p == "ghostty")
+        || term == "xterm-kitty"
+        || term == "xterm-ghostty"
 }
 
 pub fn enter() -> io::Result<()> {

@@ -10,11 +10,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use catnip::{
     kitty::{self, Rect},
     term::{self, Window},
 };
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 const SPRITE: u32 = 24;
 const ATLAS_SPRITES: u32 = 4;
@@ -33,10 +33,8 @@ const ACCEL: f32 = 4000.0;
 const DRAG: f32 = 6.0;
 
 fn main() {
-    let in_kitty = std::env::var_os("KITTY_WINDOW_ID").is_some()
-        || std::env::var("TERM").is_ok_and(|t| t == "xterm-kitty");
-    if !in_kitty {
-        eprintln!("the spike runs inside the kitty terminal only");
+    if !term::supported_terminal() {
+        eprintln!("the spike runs inside kitty or Ghostty");
         std::process::exit(1);
     }
     let win = match term::window_size() {

@@ -7,8 +7,8 @@ use std::{
     path::PathBuf,
 };
 
-use crossterm::event::KeyCode;
 use catnip::audio::Sfx;
+use crossterm::event::KeyCode;
 
 use crate::art::{Hue, WALL, WORLD_H, WORLD_W};
 

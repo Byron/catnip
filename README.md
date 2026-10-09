@@ -1,14 +1,15 @@
 # Catnip
 
 A small Rust game engine for the [kitty](https://sw.kovidgoyal.net/kitty/) terminal.
+It also runs in [Ghostty](https://ghostty.org), which implements kitty's protocols.
 
 Catnip doesn't draw with text characters. It uploads sprite sheets to kitty once
 and then moves them around as image placements every frame, so kitty's GPU does
 the compositing. A busy frame is a few kilobytes of escape codes and well under
 a millisecond of CPU time.
 
-It only targets kitty, on purpose, so it can use kitty's protocols directly
-instead of the lowest common denominator.
+It targets kitty's protocols on purpose, instead of the lowest common
+denominator that works in every terminal.
 
 ## Glowstorm
 
@@ -18,7 +19,7 @@ A twin-stick arena shooter, and the first game built on Catnip.
 cargo run --release
 ```
 
-If you start it from another terminal, it opens itself in a new kitty window.
+If you start it from another terminal, it opens itself in kitty (or Ghostty).
 
 | Control | Action |
 |---|---|
@@ -45,20 +46,20 @@ to ×8, and getting hit resets it. Your best score is kept in
 - The camera scrolls by changing which part of the floor image is shown.
 - Input uses kitty's keyboard protocol (so held keys and key release work) and
   pixel-precise mouse reporting.
-- Frames use synchronized output, titles use kitty's text sizing protocol, and
-  sound effects are synthesized at start-up.
+- Titles are neon sprite text drawn from a built-in 5×7 pixel font, frames use
+  synchronized output, and sound effects are synthesized at start-up.
 
 | Path | What's there |
 |---|---|
 | `src/kitty.rs`, `src/term.rs` | graphics protocol, terminal setup |
-| `src/gfx.rs` | shape drawing, glow, atlas packing |
+| `src/gfx.rs`, `src/font.rs` | shape drawing, glow, atlas packing, pixel font |
 | `src/audio.rs` | sound synthesis and playback |
 | `src/game.rs`, `src/art.rs`, `src/render.rs` | Glowstorm |
 | `src/bin/spike.rs` | placement and bandwidth benchmark |
 
 ## Requirements
 
-- kitty 0.40 or newer
+- a recent kitty, or Ghostty 1.x
 - Linux (macOS is untested)
 - ALSA for sound; the game runs silently without an audio device
 

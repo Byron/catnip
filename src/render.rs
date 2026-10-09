@@ -10,7 +10,7 @@ use catnip::{
 };
 
 use crate::{
-    art::{self, Sprites},
+    art::{self, Hue, Sprites, TextSize},
     game::{Game, Kind, MAX_HP, PickupKind, State, V2},
 };
 
@@ -30,6 +30,8 @@ const Z_PLAYER: i32 = -400;
 const Z_ORBS: i32 = -350;
 const Z_PARTICLES: i32 = -300;
 const Z_SHADE: i32 = -100;
+const Z_DIM: i32 = -80;
+const Z_TEXT: i32 = -50;
 
 pub struct Stats {
     pub fps: f32,
@@ -42,6 +44,7 @@ pub struct Renderer {
     floor: Placer,
     floor_size: (u32, u32),
     text_rows: Vec<u32>,
+    dimmed: bool,
     pub sprites_drawn: u32,
 }
 
@@ -52,6 +55,7 @@ impl Renderer {
             floor: Placer::new(FLOOR_ID),
             floor_size,
             text_rows: Vec::new(),
+            dimmed: false,
             sprites_drawn: 0,
         }
     }
@@ -172,20 +176,29 @@ impl Renderer {
             );
         }
 
+        self.text(out, game, sprites, win, stats);
         self.sprites_drawn = self.atlas.count();
         self.atlas.finish(out);
         self.floor.finish(out);
-        self.text(out, game, win, stats);
         out.extend_from_slice(b"\x1b[?2026l");
     }
 
-    fn text(&mut self, out: &mut Vec<u8>, game: &Game, win: Window, stats: &Stats) {
+    fn text(
+        &mut self,
+        out: &mut Vec<u8>,
+        game: &Game,
+        sprites: &Sprites,
+        win: Window,
+        stats: &Stats,
+    ) {
         for row in self.text_rows.drain(..) {
             let _ = write!(out, "\x1b[{row};1H\x1b[2K");
         }
         let mut text = Text {
             out,
             rows: &mut self.text_rows,
+            placer: &mut self.atlas,
+            sprites,
             win,
         };
 
@@ -199,12 +212,29 @@ impl Renderer {
         } else {
             kitty::delete_placement(text.out, SHADE_ID, 1);
         }
+        // Dim the arena behind menus so their text stays readable.
+        let dim = matches!(game.state, State::Paused | State::GameOver);
+        if dim {
+            let _ = write!(
+                text.out,
+                "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=2,c={},r={},z={Z_DIM},C=1,q=2\x1b\\",
+                win.cols, win.rows
+            );
+        } else if self.dimmed {
+            kitty::delete_placement(text.out, SHADE_ID, 2);
+        }
+        self.dimmed = dim;
         let row = |fraction: f32| ((win.rows as f32 * fraction) as u32).max(2);
         match game.state {
             State::Title => {
-                let scale = (win.cols / 12).clamp(1, 5);
-                text.big(row(0.22), scale, "1;38;2;61;242;255", "GLOWSTORM");
-                let r = row(0.22) + scale + 2;
+                let fits = sprites.font(TextSize::Large, Hue::Cyan).width("GLOWSTORM")
+                    < win.width as f32 * 0.9;
+                let size = if fits {
+                    TextSize::Large
+                } else {
+                    TextSize::Medium
+                };
+                let r = row(0.22) + text.big(row(0.22), size, Hue::Cyan, "GLOWSTORM") + 2;
                 text.line(
                     r,
                     "38;2;200;210;255",
@@ -228,36 +258,30 @@ impl Renderer {
             State::Playing if game.banner > 0.0 => {
                 text.big(
                     row(0.2),
-                    3,
-                    "1;38;2;255;225;77",
+                    TextSize::Medium,
+                    Hue::Yellow,
                     &format!("WAVE {}", game.wave),
                 );
             }
             State::Paused => {
-                text.big(row(0.3), 4, "1;38;2;61;242;255", "PAUSED");
-                text.line(
-                    row(0.3) + 5,
-                    "38;2;200;210;255",
-                    "Esc or click to resume · Q to quit",
-                );
+                let r = row(0.3) + text.big(row(0.3), TextSize::Medium, Hue::Cyan, "PAUSED") + 1;
+                text.line(r, "38;2;200;210;255", "Esc or click to resume · Q to quit");
             }
             State::GameOver => {
-                let scale = (win.cols / 14).clamp(1, 4);
-                text.big(row(0.22), scale, "1;38;2;255;59;78", "GAME OVER");
-                let r = row(0.22) + scale + 1;
-                text.big(r, 2, "1;38;2;255;255;255", &group(game.score));
-                let best = if game.new_best {
-                    "NEW BEST!".to_string()
+                let mut r =
+                    row(0.22) + text.big(row(0.22), TextSize::Medium, Hue::Red, "GAME OVER") + 1;
+                r += text.big(r, TextSize::Small, Hue::White, &group(game.score)) + 1;
+                if game.new_best {
+                    r += text.big(r, TextSize::Small, Hue::Yellow, "NEW BEST!");
                 } else {
-                    format!("best {}", group(game.best))
-                };
-                text.line(r + 3, "1;38;2;255;225;77", &best);
+                    text.line(r, "38;2;255;225;77", &format!("best {}", group(game.best)));
+                }
                 text.line(
-                    r + 4,
+                    r + 1,
                     "38;2;200;210;255",
                     &format!("reached wave {}", game.wave),
                 );
-                text.line(r + 6, "38;2;140;150;190", "click or R to restart · Q quit");
+                text.line(r + 3, "38;2;140;150;190", "click or R to restart · Q quit");
             }
             _ => {}
         }
@@ -288,6 +312,8 @@ impl Draw<'_> {
 struct Text<'a> {
     out: &'a mut Vec<u8>,
     rows: &'a mut Vec<u32>,
+    placer: &'a mut Placer,
+    sprites: &'a Sprites,
     win: Window,
 }
 
@@ -302,10 +328,24 @@ impl Text<'_> {
         self.rows.push(row);
     }
 
-    fn big(&mut self, row: u32, scale: u32, sgr: &str, s: &str) {
-        let col = self.centered_col(s.chars().count() as u32 * scale);
-        kitty::big_text(self.out, (row, col), scale, sgr, s);
-        self.rows.extend(row..row + scale);
+    /// Neon sprite text centered on the window, top edge at `row`.
+    /// Returns how many terminal rows it covers.
+    fn big(&mut self, row: u32, size: TextSize, hue: Hue, s: &str) -> u32 {
+        let font = self.sprites.font(size, hue);
+        let cell_h = self.win.cell().1.max(1);
+        let top = (row.saturating_sub(1) * cell_h) as f32;
+        let mut x = (self.win.width as f32 - font.width(s)) / 2.0;
+        for c in s.chars() {
+            if let Some(frame) = font.glyph(c) {
+                let at = (
+                    (x - font.pad).round() as i32,
+                    (top - font.pad).round() as i32,
+                );
+                self.placer.place(self.out, frame.rect, at, Z_TEXT);
+            }
+            x += font.advance;
+        }
+        (font.height / cell_h as f32).ceil() as u32
     }
 
     fn hud(&mut self, game: &Game, stats: &Stats, sprites: u32) {

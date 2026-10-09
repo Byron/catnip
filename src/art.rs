@@ -3,9 +3,8 @@
 
 use std::f32::consts::{PI, TAU};
 
-use catnip::gfx::{
-    AtlasBuilder, Color, Frame, Image, Mask, WHITE, glow_dot, hex, neon, rotate,
-};
+use catnip::font;
+use catnip::gfx::{AtlasBuilder, Color, Frame, Image, Mask, WHITE, glow_dot, hex, neon, rotate};
 
 pub const WORLD_W: f32 = 2400.0;
 pub const WORLD_H: f32 = 1500.0;
@@ -78,6 +77,96 @@ pub struct Sprites {
     pub ring: Vec<Vec<Frame>>,
     pub heart: [Frame; 2],
     pub bolt: [Frame; 2],
+    fonts: Vec<(TextSize, Hue, Font)>,
+}
+
+impl Sprites {
+    pub fn font(&self, size: TextSize, hue: Hue) -> &Font {
+        self.fonts
+            .iter()
+            .find(|(s, h, _)| *s == size && *h == hue)
+            .map(|(_, _, font)| font)
+            .expect("font style is built in build_sprites")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextSize {
+    Large,
+    Medium,
+    Small,
+}
+
+impl TextSize {
+    /// Logical units per font pixel.
+    fn pixel(self) -> f32 {
+        match self {
+            TextSize::Large => 11.0,
+            TextSize::Medium => 7.0,
+            TextSize::Small => 4.5,
+        }
+    }
+}
+
+/// Neon glyph sprites for one size and color.
+pub struct Font {
+    glyphs: Vec<Option<Frame>>,
+    /// Window pixels from one glyph to the next.
+    pub advance: f32,
+    /// Glow padding around each glyph, in window pixels.
+    pub pad: f32,
+    /// Glyph height without padding, in window pixels.
+    pub height: f32,
+}
+
+impl Font {
+    pub fn glyph(&self, c: char) -> Option<Frame> {
+        let index = font::CHARSET.find(c.to_ascii_uppercase())?;
+        self.glyphs[index]
+    }
+
+    pub fn width(&self, text: &str) -> f32 {
+        let n = text.chars().count() as f32;
+        (n * self.advance - self.advance / 6.0).max(0.0)
+    }
+}
+
+/// The text styles the game uses; only these get rendered.
+const FONT_STYLES: [(TextSize, Hue); 6] = [
+    (TextSize::Large, Hue::Cyan),
+    (TextSize::Medium, Hue::Yellow),
+    (TextSize::Medium, Hue::Cyan),
+    (TextSize::Medium, Hue::Red),
+    (TextSize::Small, Hue::White),
+    (TextSize::Small, Hue::Yellow),
+];
+
+fn build_font(atlas: &mut AtlasBuilder, s: f32, size: TextSize, hue: Hue) -> Font {
+    let px = size.pixel() * s;
+    let pad = (px * 2.0).ceil();
+    let w = (font::COLS as f32 * px + pad * 2.0).ceil() as u32;
+    let h = (font::ROWS as f32 * px + pad * 2.0).ceil() as u32;
+    let gap = px * 0.08;
+    let glyphs = font::CHARSET
+        .chars()
+        .map(|c| {
+            let mut lines = Mask::new(w, h);
+            let mut lit = false;
+            for (x, y) in font::pixels(c) {
+                lit = true;
+                let (x0, y0) = (pad + x as f32 * px + gap, pad + y as f32 * px + gap);
+                let (x1, y1) = (x0 + px - gap * 2.0, y0 + px - gap * 2.0);
+                lines.fill_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 1.0);
+            }
+            lit.then(|| atlas.add(neon(&lines, &lines, hue.color(), (px * 1.1) as usize, 1.3)))
+        })
+        .collect();
+    Font {
+        glyphs,
+        advance: px * (font::COLS + 1) as f32,
+        pad,
+        height: font::ROWS as f32 * px,
+    }
 }
 
 /// Pixels per logical unit, chosen so roughly 900 units fit the window height.
@@ -315,6 +404,10 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         ring,
         heart,
         bolt,
+        fonts: FONT_STYLES
+            .iter()
+            .map(|&(size, hue)| (size, hue, build_font(&mut atlas, s, size, hue)))
+            .collect(),
     };
     (atlas.build(), sprites)
 }
