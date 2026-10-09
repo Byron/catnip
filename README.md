@@ -44,7 +44,7 @@ time they're twice as tough.
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose damage over distance, so it pays to get close. Quick kills build a
 multiplier up to ×8 with a rising note for every kill in the chain; getting hit
-resets it. Your best score is kept in `~/.local/share/glowstorm/best_score`.
+resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
 
 ## How it works
 
