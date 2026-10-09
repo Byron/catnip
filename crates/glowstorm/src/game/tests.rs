@@ -63,7 +63,10 @@ fn enemies_double_while_the_player_grows_a_fifth_by_wave_eleven() {
     );
     assert!((game.enemy_hp_scale() - 1.6).abs() < 1e-5);
     game.wave = 40;
-    assert!((game.enemy_hp_scale() - 2.0).abs() < 1e-5, "health growth caps at 2×");
+    assert!(
+        (game.enemy_hp_scale() - 2.0).abs() < 1e-5,
+        "health growth caps at 2×"
+    );
     game.wave = 11;
     assert!(
         game.enemy_cooldown_scale() < 0.75,
@@ -206,4 +209,29 @@ fn beating_the_boss_pays_out_and_moves_to_the_next_wave() {
     assert!(game.pickups.len() >= 3, "boss drops loot");
     run(&mut game, 6.0);
     assert_eq!(game.state, State::Upgrade, "upgrade cards after the boss");
+}
+
+#[test]
+fn tanks_lob_volleys_from_afar_and_enrage_when_left_alone() {
+    let mut game = Game::new(17);
+    game.start();
+    game.dev.god = true;
+    game.budget = 0;
+    game.banner = 0.0;
+    game.enemies.clear();
+    game.spawns.clear();
+    let far = game.player.pos + v2(600.0, 0.0);
+    game.add_enemy(Kind::Tank, far, V2::default(), false);
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for _ in 0..(60 * 6) {
+        game.update(1.0 / 60.0, &Input::default(), &view);
+    }
+    assert!(game.enemies[0].enraged, "a lone tank enrages");
+    assert!(
+        game.orbs.iter().any(|o| o.heavy),
+        "and lobs heavy volleys at range"
+    );
 }

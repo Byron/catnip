@@ -13,6 +13,7 @@ pub struct Sprites {
     pub shooter: Flashing,
     pub tank: Flashing,
     pub orb: Frame,
+    pub heavy_orb: Frame,
     /// [hue][size]
     pub spark: Vec<[Frame; 3]>,
     /// [hue][frame], small to large
@@ -144,6 +145,7 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
     );
 
     let orb = atlas.add(glow_dot((22.0 * s) as u32, Hue::Red.color(), 0.45));
+    let heavy_orb = atlas.add(glow_dot((38.0 * s) as u32, hex(0xff6a2b), 0.4));
 
     let spark = HUES
         .iter()
@@ -301,6 +303,7 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         shooter,
         tank,
         orb,
+        heavy_orb,
         spark,
         ring,
         heart,

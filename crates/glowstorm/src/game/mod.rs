@@ -88,6 +88,8 @@ pub struct Game {
     pub boss_pending: f32,
     /// White screen flash, seconds left.
     pub flash: f32,
+    /// "ENRAGED" was already shown this wave.
+    enrage_announced: bool,
     slowmo: f32,
     slowmo_scale: f32,
     pub difficulty: Difficulty,
@@ -164,6 +166,7 @@ impl Game {
             boss: None,
             boss_pending: 0.0,
             flash: 0.0,
+            enrage_announced: false,
             slowmo: 0.0,
             slowmo_scale: 1.0,
             difficulty: Difficulty::Medium,

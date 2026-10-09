@@ -83,6 +83,10 @@ pub struct Enemy {
     /// Gold-ringed: 3× health, nastier attack, guaranteed loot.
     pub elite: bool,
     pub(super) id: u32,
+    /// Tanks left alone at the end of a wave: faster, angrier.
+    pub enraged: bool,
+    /// The current wind-up ends in a ranged volley (tanks) rather than a slam.
+    pub(super) ranged: bool,
 }
 
 impl Enemy {
@@ -102,11 +106,21 @@ pub struct Orb {
     pub pos: V2,
     pub(super) vel: V2,
     pub(super) life: f32,
+    /// Tank volley orbs: bigger and slower than shooter bullets.
+    pub heavy: bool,
+}
+
+impl Orb {
+    pub(super) fn radius(&self) -> f32 {
+        if self.heavy { 15.0 } else { 9.0 }
+    }
 }
 
 pub(super) const ORB_SPEED: f32 = 340.0;
 
 pub(super) const MAX_ORBS: usize = 450;
+/// Tank volley orbs: slow enough to read, big enough to respect.
+pub(super) const VOLLEY_SPEED: f32 = 230.0;
 
 pub const SHOCK_RADIUS: f32 = 270.0;
 
@@ -151,6 +165,8 @@ impl Game {
             aim: V2::default(),
             elite,
             id,
+            enraged: false,
+            ranged: false,
         });
     }
 
@@ -161,10 +177,19 @@ impl Game {
         let speedup = self.enemy_speed_scale();
         let cooldown = self.enemy_cooldown_scale();
         let fan = self.wave >= 6;
+        // Tanks shouldn't be the safe thing to leave for last: once nothing
+        // else is left in the wave, they enrage.
+        let only_tanks = !self.enemies.is_empty()
+            && self.enemies.iter().all(|e| e.kind == Kind::Tank)
+            && self.budget <= 0
+            && self.spawns.is_empty()
+            && self.boss.is_none();
         let mut shots = Vec::new();
         let mut shocks = Vec::new();
+        let mut volleys = Vec::new();
         let mut lunged = false;
         for e in &mut self.enemies {
+            e.enraged = only_tanks;
             let to_player = target - e.pos;
             let dist = to_player.len();
             let dir = to_player.norm();
@@ -254,20 +279,36 @@ impl Game {
                     }
                 }
                 (Kind::Tank, Act::Move) => {
-                    desired = dir * 85.0 * speedup;
-                    steer = 1.5;
-                    if chasing && dist < 240.0 && e.cooldown <= 0.0 {
+                    let pace = if e.enraged { 200.0 } else { 85.0 };
+                    desired = dir * pace * speedup;
+                    steer = if e.enraged { 3.0 } else { 1.5 };
+                    // Slam up close, lob a volley from afar.
+                    if chasing && e.cooldown <= 0.0 && dist < 1000.0 {
+                        e.ranged = dist >= 240.0;
                         e.act = Act::Windup;
-                        e.act_t = 0.6;
+                        e.act_t = if e.ranged { 0.7 } else { 0.6 };
                     }
                 }
                 (Kind::Tank, Act::Windup) => {
                     steer = 6.0;
                     if e.act_t <= 0.0 {
-                        shocks.push((e.pos, e.elite));
+                        let rage = if e.enraged { 0.5 } else { 1.0 };
                         e.act = Act::Recover;
-                        e.act_t = 0.5;
-                        e.cooldown = 3.2 * cooldown;
+                        if e.ranged {
+                            let lead = (dist / VOLLEY_SPEED).min(1.2) * 0.6;
+                            let aim = (target + target_vel * lead - e.pos).norm();
+                            let n: i32 = if e.elite { 7 } else { 5 };
+                            for i in 0..n {
+                                let d = V2::from_angle(aim.angle() + (i - n / 2) as f32 * 0.17);
+                                volleys.push((e.pos + d * 36.0, d * VOLLEY_SPEED));
+                            }
+                            e.act_t = 0.6;
+                            e.cooldown = 4.2 * cooldown * rage;
+                        } else {
+                            shocks.push((e.pos, e.elite));
+                            e.act_t = 0.5;
+                            e.cooldown = 3.2 * cooldown * rage;
+                        }
                     }
                 }
                 _ => {}
@@ -322,6 +363,27 @@ impl Game {
         for (pos, dir) in shots {
             self.add_orb(pos, dir * ORB_SPEED);
         }
+        if !volleys.is_empty() {
+            self.sfx.push(Sfx::BossBlast);
+        }
+        for (pos, vel) in volleys {
+            if self.orbs.len() < MAX_ORBS {
+                self.orbs.push(Orb {
+                    pos,
+                    vel,
+                    life: 7.0,
+                    heavy: true,
+                });
+            }
+        }
+        if only_tanks && !self.enrage_announced {
+            self.enrage_announced = true;
+            self.sfx.push(Sfx::Shock);
+            let tanks: Vec<V2> = self.enemies.iter().map(|e| e.pos).collect();
+            for pos in tanks {
+                self.popup(pos + v2(0.0, -50.0), "ENRAGED".to_string(), true);
+            }
+        }
         for (pos, elite) in shocks {
             self.shockwaves.push(Shockwave {
                 pos,
@@ -355,6 +417,7 @@ impl Game {
                 pos,
                 vel,
                 life: 6.0,
+                heavy: false,
             });
         }
     }

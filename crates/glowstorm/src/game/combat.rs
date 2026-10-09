@@ -229,7 +229,7 @@ impl Game {
             && let Some(i) = self
                 .orbs
                 .iter()
-                .position(|o| (o.pos - at).len() < 9.0 + PLAYER_RADIUS)
+                .position(|o| (o.pos - at).len() < o.radius() + PLAYER_RADIUS)
         {
             source = Some(self.orbs.swap_remove(i).pos);
         }
@@ -311,7 +311,7 @@ impl Game {
         let mut blocked = Vec::new();
         for &at in &shields {
             self.orbs.retain(|o| {
-                let hit = (o.pos - at).len() < 18.0;
+                let hit = (o.pos - at).len() < o.radius() + 9.0;
                 if hit {
                     blocked.push(o.pos);
                 }

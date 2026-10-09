@@ -15,6 +15,7 @@ impl Game {
     pub(super) fn start_wave(&mut self, wave: u32) {
         self.wave = wave;
         self.spawn_cd = 0.0;
+        self.enrage_announced = false;
         if wave.is_multiple_of(5) {
             // Boss wave: no regular spawns, the boss brings its own minions.
             self.budget = 0;

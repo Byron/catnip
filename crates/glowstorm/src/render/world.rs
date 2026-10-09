@@ -65,6 +65,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             _ => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 4.0),
         };
         draw.sprite(frames[k], e.pos + shudder, Z_ENEMIES);
+        if e.enraged {
+            // A red ring pulsing outward, three times a second.
+            let frames = &sprites.ring[Hue::Red.index()];
+            let k = ((game.time * 3.0 + e.phase).fract() * frames.len() as f32) as usize;
+            draw.sprite(frames[k.min(frames.len() - 1)], e.pos, Z_ENEMIES - 2);
+        }
         if e.elite {
             let aura = &sprites.aura[usize::from(e.kind == Kind::Tank)];
             let k = art::angle_frame(game.time * 1.5 + e.phase, art::AURA_FRAMES, TAU / 10.0);
@@ -118,7 +124,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
 
     for orb in &game.orbs {
-        draw.sprite(sprites.orb, orb.pos, Z_ORBS);
+        let frame = if orb.heavy {
+            sprites.heavy_orb
+        } else {
+            sprites.orb
+        };
+        draw.sprite(frame, orb.pos, Z_ORBS);
     }
 
     for particle in &game.particles {
