@@ -353,12 +353,61 @@ pub struct Player {
     dash_t: f32,
     pub rapid_t: f32,
     ghost_cd: f32,
+    pub max_hp: i32,
     /// Weapon heat, 0..1. Firing adds heat; at 1 the gun locks until it cools.
     pub heat: f32,
     pub overheated: bool,
 }
 
-pub const MAX_HP: i32 = 5;
+/// Picked on the title screen. Harder settings pay more points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Difficulty {
+    Medium,
+    Hard,
+    Extreme,
+}
+
+impl Difficulty {
+    pub const ALL: [Difficulty; 3] = [Difficulty::Medium, Difficulty::Hard, Difficulty::Extreme];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Difficulty::Medium => "MEDIUM",
+            Difficulty::Hard => "HARD",
+            Difficulty::Extreme => "EXTREME",
+        }
+    }
+
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Difficulty::Medium => "5 hearts · the intended experience",
+            Difficulty::Hard => "4 hearts · tougher, faster, more enemies · score ×1.5",
+            Difficulty::Extreme => "3 hearts · relentless · score ×2",
+        }
+    }
+
+    /// (hearts, enemy hp, enemy speed, attack rate, enemies per wave, boss hp, score)
+    fn tuning(self) -> (i32, f32, f32, f32, f32, f32, f32) {
+        match self {
+            Difficulty::Medium => (5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+            Difficulty::Hard => (4, 1.25, 1.1, 1.2, 1.25, 1.3, 1.5),
+            Difficulty::Extreme => (3, 1.6, 1.2, 1.4, 1.5, 1.7, 2.0),
+        }
+    }
+
+    pub fn hearts(self) -> i32 {
+        self.tuning().0
+    }
+
+    fn file_suffix(self) -> &'static str {
+        match self {
+            Difficulty::Medium => "",
+            Difficulty::Hard => "_hard",
+            Difficulty::Extreme => "_extreme",
+        }
+    }
+}
+
 const PLAYER_RADIUS: f32 = 14.0;
 const ACCEL: f32 = 3400.0;
 const DRAG: f32 = 7.0;
@@ -388,12 +437,13 @@ const MOTES: usize = 90;
 pub const POPUP_TIME: f32 = 0.8;
 
 impl Player {
-    fn new() -> Self {
+    fn new(hearts: i32) -> Self {
         Self {
             pos: v2(WORLD_W / 2.0, WORLD_H / 2.0),
             vel: V2::default(),
             aim: -TAU / 4.0,
-            hp: MAX_HP,
+            hp: hearts,
+            max_hp: hearts,
             invuln: 0.0,
             fire_cd: 0.0,
             dash_cd: 0.0,
@@ -453,6 +503,7 @@ pub struct Game {
     pub flash: f32,
     slowmo: f32,
     slowmo_scale: f32,
+    pub difficulty: Difficulty,
 }
 
 /// Developer switches read from the environment, for testing later waves:
@@ -478,15 +529,11 @@ impl DevFlags {
 
 impl Game {
     pub fn new(seed: u64) -> Self {
-        let best_path = best_score_path();
-        let best = best_path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0);
+        let best_path = best_score_path(Difficulty::Medium);
+        let best = load_best(best_path.as_ref());
         let mut game = Self {
             state: State::Title,
-            player: Player::new(),
+            player: Player::new(Difficulty::Medium.hearts()),
             enemies: Vec::new(),
             bullets: Vec::new(),
             orbs: Vec::new(),
@@ -523,6 +570,7 @@ impl Game {
             flash: 0.0,
             slowmo: 0.0,
             slowmo_scale: 1.0,
+            difficulty: Difficulty::Medium,
         };
         for i in 0..MOTES {
             let pos = v2(game.rng.range(0.0, WORLD_W), game.rng.range(0.0, WORLD_H));
@@ -542,12 +590,46 @@ impl Game {
     }
 
     fn start(&mut self) {
-        let best = self.best;
+        let difficulty = self.difficulty;
         let seed = self.rng.next();
         *self = Game::new(seed);
-        self.best = best;
+        self.set_difficulty(difficulty);
         self.state = State::Playing;
         self.start_wave(self.dev.first_wave);
+    }
+
+    fn set_difficulty(&mut self, difficulty: Difficulty) {
+        self.difficulty = difficulty;
+        self.player = Player::new(difficulty.hearts());
+        self.best_path = best_score_path(difficulty);
+        self.best = load_best(self.best_path.as_ref());
+    }
+
+    /// The player's small per-wave edge: about 1.2× when enemies are 2×.
+    pub fn power(&self) -> f32 {
+        (1.0 + 0.02 * self.wave.saturating_sub(1) as f32).min(1.3)
+    }
+
+    fn enemy_hp_scale(&self) -> f32 {
+        self.difficulty.tuning().1 * (1.0 + 0.06 * self.wave.saturating_sub(1) as f32)
+    }
+
+    fn enemy_speed_scale(&self) -> f32 {
+        self.difficulty.tuning().2 * (1.0 + 0.03 * self.wave.saturating_sub(1) as f32).min(1.45)
+    }
+
+    /// Multiplies attack cooldowns: below 1 means enemies attack more often.
+    fn enemy_cooldown_scale(&self) -> f32 {
+        let rate = self.difficulty.tuning().3 * (1.0 + 0.04 * self.wave.saturating_sub(1) as f32);
+        (1.0 / rate).max(0.45)
+    }
+
+    /// Points after the combo multiplier and difficulty bonus.
+    fn award(&mut self, base: u64) -> u64 {
+        let points =
+            (base as f32 * self.multiplier() as f32 * self.difficulty.tuning().6).round() as u64;
+        self.score += points;
+        points
     }
 
     fn start_wave(&mut self, wave: u32) {
@@ -560,7 +642,7 @@ impl Game {
             self.boss_pending = 2.6;
             self.sfx.push(Sfx::Siren);
         } else {
-            self.budget = 6 + 4 * wave as i32;
+            self.budget = ((6 + 4 * wave) as f32 * self.difficulty.tuning().4).round() as i32;
             self.banner = 2.0;
             self.sfx.push(Sfx::Wave);
         }
@@ -584,6 +666,27 @@ impl Game {
         let confirm = input.clicked || input.hit(&[KeyCode::Enter]);
         match self.state {
             State::Title => {
+                let index = Difficulty::ALL
+                    .iter()
+                    .position(|d| *d == self.difficulty)
+                    .unwrap_or(0);
+                let up = input.hit(&[KeyCode::Up, KeyCode::Char('w')]);
+                let down = input.hit(&[KeyCode::Down, KeyCode::Char('s')]);
+                let mut pick = None;
+                if up {
+                    pick = Some((index + Difficulty::ALL.len() - 1) % Difficulty::ALL.len());
+                } else if down {
+                    pick = Some((index + 1) % Difficulty::ALL.len());
+                }
+                for (i, key) in ['1', '2', '3'].into_iter().enumerate() {
+                    if input.hit(&[KeyCode::Char(key)]) {
+                        pick = Some(i);
+                    }
+                }
+                if let Some(i) = pick {
+                    self.set_difficulty(Difficulty::ALL[i]);
+                    self.sfx.push(Sfx::Combo(i as u8 * 2));
+                }
                 if confirm || input.hit(&[KeyCode::Char(' ')]) {
                     self.start();
                 }
@@ -641,6 +744,11 @@ impl Game {
                 // A short grace period so a held fire button doesn't skip the screen.
                 if self.state_t > 0.8 && (confirm || input.hit(&[KeyCode::Char('r')])) {
                     self.start();
+                } else if input.hit(&[KeyCode::Esc]) {
+                    let difficulty = self.difficulty;
+                    let seed = self.rng.next();
+                    *self = Game::new(seed);
+                    self.set_difficulty(difficulty);
                 }
             }
         }
@@ -664,6 +772,8 @@ impl Game {
     }
 
     fn update_player(&mut self, dt: f32, input: &Input, view: &View) {
+        // Half of the damage edge also goes into gun cooling.
+        let cooling_boost = 1.0 + (self.power() - 1.0) / 2.0;
         let Self {
             player: p,
             sfx,
@@ -745,7 +855,7 @@ impl Game {
         let cooling = if p.overheated {
             OVERHEAT_COOLING
         } else {
-            HEAT_COOLING
+            HEAT_COOLING * cooling_boost
         };
         p.heat = (p.heat - cooling * dt).max(0.0);
         if p.overheated && p.heat <= HEAT_RESUME {
@@ -833,12 +943,18 @@ impl Game {
             && self.boss_pending <= 0.0
         {
             self.wave_clear = 1.8;
-            let bonus = 100 * self.wave as u64;
+            // The wave bonus scales with difficulty but not with the combo.
+            let bonus = (100.0 * self.wave as f32 * self.difficulty.tuning().6).round() as u64;
             self.score += bonus;
             self.slow(0.6, 0.35);
             self.flash = 0.08;
             self.sfx.push(Sfx::WaveClear);
             self.popup(self.player.pos + v2(0.0, -46.0), format!("+{bonus}"), true);
+            self.popup(
+                self.player.pos + v2(0.0, 46.0),
+                "POWER UP".to_string(),
+                true,
+            );
         }
 
         let mut ready = Vec::new();
@@ -917,7 +1033,7 @@ impl Game {
             kind,
             pos,
             vel,
-            hp: kind.hp(),
+            hp: kind.hp() * self.enemy_hp_scale(),
             flash: 0.0,
             spin: phase,
             facing: (self.player.pos - pos).angle(),
@@ -933,7 +1049,8 @@ impl Game {
         let target = self.player.pos;
         let target_vel = self.player.vel;
         let chasing = self.state == State::Playing;
-        let speedup = 1.0 + 0.04 * self.wave as f32;
+        let speedup = self.enemy_speed_scale();
+        let cooldown = self.enemy_cooldown_scale();
         let fan = self.wave >= 6;
         let mut shots = Vec::new();
         let mut shocks = Vec::new();
@@ -971,7 +1088,7 @@ impl Game {
                     if e.act_t <= 0.0 {
                         e.act = Act::Recover;
                         e.act_t = 0.45;
-                        e.cooldown = 1.9 + (e.phase * 3.0).fract();
+                        e.cooldown = (1.9 + (e.phase * 3.0).fract()) * cooldown;
                     }
                 }
                 (_, Act::Recover) => {
@@ -1018,7 +1135,7 @@ impl Game {
                             shots.push((e.pos + aim * 22.0, V2::from_angle(aim.angle() + a)));
                         }
                         e.act = Act::Move;
-                        e.cooldown = 1.5 + (e.phase * 7.0).fract() * 0.9;
+                        e.cooldown = (1.5 + (e.phase * 7.0).fract() * 0.9) * cooldown;
                     }
                 }
                 (Kind::Tank, Act::Move) => {
@@ -1035,7 +1152,7 @@ impl Game {
                         shocks.push(e.pos);
                         e.act = Act::Recover;
                         e.act_t = 0.5;
-                        e.cooldown = 3.2;
+                        e.cooldown = 3.2 * cooldown;
                     }
                 }
                 _ => {}
@@ -1112,6 +1229,7 @@ impl Game {
     fn update_bullets(&mut self, dt: f32) {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();
+        let power = self.power();
         let enemies = &mut self.enemies;
         let boss = &mut self.boss;
         self.bullets.retain_mut(|b| {
@@ -1121,7 +1239,7 @@ impl Game {
             if let Some(e) = enemies.iter_mut().find(|e| {
                 e.hp > 0.0 && segment_distance(e.pos, b.prev, b.pos) < e.kind.radius() + 5.0
             }) {
-                let damage = bullet_damage(b.traveled);
+                let damage = bullet_damage(b.traveled) * power;
                 e.hp -= damage;
                 e.flash = 0.07;
                 let knock = if e.kind == Kind::Tank { 30.0 } else { 160.0 };
@@ -1142,7 +1260,7 @@ impl Game {
                 let damage = if boss.entering > 0.0 {
                     0.0
                 } else {
-                    bullet_damage(b.traveled)
+                    bullet_damage(b.traveled) * power
                 };
                 boss.hp -= damage;
                 boss.flash = 0.05;
@@ -1185,8 +1303,7 @@ impl Game {
         let before = self.multiplier();
         self.chain += 1;
         self.chain_t = 2.2;
-        let points = e.kind.score() * self.multiplier();
-        self.score += points;
+        let points = self.award(e.kind.score());
         self.popup(e.pos, format!("+{points}"), false);
         // Each kill in a chain plays the next note up the scale.
         if self.chain >= 2 {
@@ -1243,7 +1360,7 @@ impl Game {
         }
         let drop_chance = if big { 0.45 } else { 0.06 };
         if self.rng.chance(drop_chance) {
-            let kind = if self.player.hp < MAX_HP && self.rng.chance(0.5) {
+            let kind = if self.player.hp < self.player.max_hp && self.rng.chance(0.5) {
                 PickupKind::Heart
             } else {
                 PickupKind::Rapid
@@ -1368,7 +1485,7 @@ impl Game {
         });
         for (kind, pos) in collected {
             match kind {
-                PickupKind::Heart => self.player.hp = (self.player.hp + 1).min(MAX_HP),
+                PickupKind::Heart => self.player.hp = (self.player.hp + 1).min(self.player.max_hp),
                 PickupKind::Rapid => self.player.rapid_t = RAPID_TIME,
             }
             let hue = if kind == PickupKind::Heart {
@@ -1476,11 +1593,17 @@ pub fn bullet_damage(traveled: f32) -> f32 {
     1.0 - (1.0 - MIN_DAMAGE) * t
 }
 
-fn best_score_path() -> Option<PathBuf> {
+fn best_score_path(difficulty: Difficulty) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(base.join("glowstorm/best_score"))
+    Some(base.join(format!("glowstorm/best_score{}", difficulty.file_suffix())))
+}
+
+fn load_best(path: Option<&PathBuf>) -> u64 {
+    path.and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1535,6 +1658,39 @@ mod tests {
             !overheated && heat <= HEAT_RESUME,
             "gun unlocks after cooling: {heat}"
         );
+    }
+
+    #[test]
+    fn enemies_double_while_the_player_grows_a_fifth_by_wave_eleven() {
+        let mut game = Game::new(9);
+        game.wave = 11;
+        assert!(
+            (game.power() - 1.2).abs() < 1e-5,
+            "player power {}",
+            game.power()
+        );
+        assert!((game.enemy_hp_scale() - 1.6).abs() < 1e-5);
+        assert!(
+            game.enemy_cooldown_scale() < 0.75,
+            "enemies attack more often"
+        );
+        game.wave = 60;
+        assert!(
+            game.power() <= 1.3 && game.enemy_cooldown_scale() >= 0.45,
+            "both are capped"
+        );
+    }
+
+    #[test]
+    fn difficulty_sets_hearts_and_keeps_separate_best_scores() {
+        let mut game = Game::new(9);
+        game.set_difficulty(Difficulty::Extreme);
+        assert_eq!(game.player.max_hp, 3);
+        let paths: Vec<_> = Difficulty::ALL
+            .iter()
+            .map(|&d| best_score_path(d))
+            .collect();
+        assert!(paths[0] != paths[1] && paths[1] != paths[2]);
     }
 
     #[test]

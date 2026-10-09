@@ -11,7 +11,7 @@ use catnip::{
 
 use crate::{
     art::{self, Hue, Sprites, TextSize},
-    game::{BULLET_RANGE, Game, Kind, MAX_HP, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2},
+    game::{BULLET_RANGE, Difficulty, Game, Kind, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2},
 };
 
 pub const ATLAS_ID: u32 = 10;
@@ -325,14 +325,29 @@ impl Renderer {
                     "38;2;140;150;190",
                     "no mouse? arrow keys aim and fire",
                 );
-                text.line(r + 3, "1;38;2;255;225;77", "click or press Enter to start");
+                // Difficulty menu: the selected one is yellow.
+                let mut r = r + 3;
+                for d in Difficulty::ALL {
+                    let hue = if d == game.difficulty {
+                        Hue::Yellow
+                    } else {
+                        Hue::White
+                    };
+                    r += text.big(r, TextSize::Small, hue, d.name());
+                }
+                text.line(r + 1, "38;2;200;210;255", game.difficulty.blurb());
                 if game.best > 0 {
                     text.line(
-                        r + 5,
+                        r + 2,
                         "38;2;140;150;190",
                         &format!("best {}", group(game.best)),
                     );
                 }
+                text.line(
+                    r + 4,
+                    "1;38;2;255;225;77",
+                    "↑/↓ choose · click or Enter to start",
+                );
                 text.line(win.rows, "38;2;90;100;140", "Esc pause · Q quit");
             }
             State::Playing
@@ -372,7 +387,14 @@ impl Renderer {
                     "38;2;200;210;255",
                     &format!("reached wave {}", game.wave),
                 );
-                text.line(r + 3, "38;2;140;150;190", "click or R to restart · Q quit");
+                text.line(
+                    r + 3,
+                    "38;2;140;150;190",
+                    &format!(
+                        "{} · click or R to restart · Esc menu · Q quit",
+                        game.difficulty.name()
+                    ),
+                );
             }
             _ => {}
         }
@@ -559,7 +581,7 @@ impl Text<'_> {
         let spacing = 20.0 * self.scale;
         let center_y = cell_h as f32 / 2.0;
         let mut x = cell_w as f32 + spacing / 2.0;
-        for i in 0..MAX_HP {
+        for i in 0..p.max_hp {
             let frame = self.sprites.hud_heart[usize::from(i >= p.hp)];
             let at = (
                 (x - frame.rect.w as f32 / 2.0).round() as i32,
@@ -576,6 +598,16 @@ impl Text<'_> {
             let _ = write!(left, "  \x1b[38;2;255;61;240m×{}", game.multiplier());
         }
         let _ = write!(left, "  \x1b[38;2;61;242;255mWAVE {}", game.wave);
+        if game.power() > 1.0 {
+            let _ = write!(
+                left,
+                "  \x1b[38;2;93;255;106mPOWER +{:.0}%",
+                (game.power() - 1.0) * 100.0
+            );
+        }
+        if game.difficulty != Difficulty::Medium {
+            let _ = write!(left, "  \x1b[38;2;255;59;78m{}", game.difficulty.name());
+        }
         if p.rapid_t > 0.0 {
             let _ = write!(left, "  \x1b[38;2;255;225;77mRAPID {:.1}s", p.rapid_t);
         }

@@ -36,6 +36,11 @@ chasers lunge, swarms flank, shooters lead their shots, and tanks slam out a
 shockwave when you get close. Every fifth wave, PRISM arrives: a three-phase
 boss with bullet rings, spirals, charges and summoned minions.
 
+Pick Medium, Hard or Extreme on the title screen. Harder settings mean fewer
+hearts and tougher, faster, more numerous enemies, and pay up to 2× the score.
+Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
+time they're twice as tough.
+
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose damage over distance, so it pays to get close. Quick kills build a
 multiplier up to ×8 with a rising note for every kill in the chain; getting hit

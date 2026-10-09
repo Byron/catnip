@@ -38,6 +38,8 @@ pub struct Boss {
     pub level: u32,
     from: V2,
     home: V2,
+    /// Difficulty speed factor for its bullets and pauses.
+    pace: f32,
 }
 
 impl Boss {
@@ -61,7 +63,8 @@ impl Boss {
 impl Game {
     pub(super) fn spawn_boss(&mut self) {
         let level = (self.wave / 5).max(1);
-        let max_hp = 170.0 * (1.0 + 0.5 * (level - 1) as f32);
+        let max_hp = 130.0 * self.difficulty.tuning().5 * (1.0 + 0.5 * (level - 1) as f32);
+        let pace = self.difficulty.tuning().2;
         // Settle on the side of the arena away from the player.
         let center = v2(WORLD_W / 2.0, WORLD_H / 2.0);
         let mut away = (center - self.player.pos).norm();
@@ -89,6 +92,7 @@ impl Game {
             level,
             from,
             home,
+            pace,
         });
         self.rings.push(Ring {
             pos: home,
@@ -168,7 +172,7 @@ impl Game {
                     for i in 0..count {
                         let a = offset + i as f32 * TAU / count as f32;
                         let d = V2::from_angle(a);
-                        self.add_orb(b.pos + d * BOSS_RADIUS, d * 250.0);
+                        self.add_orb(b.pos + d * BOSS_RADIUS, d * 215.0 * b.pace);
                     }
                     self.sfx.push(Sfx::BossBlast);
                     self.shake = (self.shake + 4.0).min(18.0);
@@ -190,11 +194,11 @@ impl Game {
             }
             Pattern::Spiral => {
                 if b.step_t <= 0.0 {
-                    b.step_t = if phase >= 3 { 0.055 } else { 0.075 };
+                    b.step_t = if phase >= 3 { 0.065 } else { 0.09 } / b.pace;
                     for arm in 0..phase {
                         let a = b.emit_angle + arm as f32 * TAU / phase as f32;
                         let d = V2::from_angle(a);
-                        self.add_orb(b.pos + d * BOSS_RADIUS * 0.8, d * 230.0);
+                        self.add_orb(b.pos + d * BOSS_RADIUS * 0.8, d * 205.0 * b.pace);
                     }
                     b.emit_angle += 0.33;
                 }
@@ -210,7 +214,7 @@ impl Game {
                     for i in 0..n {
                         let a = aim.angle() + (i - n / 2) as f32 * 0.16;
                         let d = V2::from_angle(a);
-                        self.add_orb(b.pos + d * BOSS_RADIUS, d * 380.0);
+                        self.add_orb(b.pos + d * BOSS_RADIUS, d * 330.0 * b.pace);
                     }
                     self.sfx.push(Sfx::EnemyShoot);
                     b.step += 1;
@@ -335,8 +339,7 @@ impl Game {
         self.hitstop = 0.1;
         self.sfx.push(Sfx::BigExplode);
         self.sfx.push(Sfx::Victory);
-        let points = 1500 * u64::from(b.level) * self.multiplier();
-        self.score += points;
+        let points = self.award(1500 * u64::from(b.level));
         self.popup(at + v2(0.0, -BOSS_RADIUS), format!("+{points}"), true);
         self.push_motes(at, 900.0, 700.0);
 
@@ -393,7 +396,7 @@ impl Boss {
     fn rest(&mut self) {
         let phase = self.phase();
         self.pattern = Pattern::Rest;
-        self.pattern_t = (1.4 - 0.3 * phase as f32).max(0.5);
+        self.pattern_t = (1.7 - 0.3 * phase as f32).max(0.6) / self.pace;
         self.windup = 0.0;
     }
 }
