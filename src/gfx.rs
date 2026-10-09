@@ -76,7 +76,9 @@ impl Mask {
         )
     }
 
-    /// Filled polygon, anti-aliased with 4×4 supersampling.
+    /// Filled polygon (even-odd), anti-aliased with 4×4 supersampling.
+    /// Scanline: each sub-row finds its edge crossings once, then counts the
+    /// covered sub-samples per pixel along the spans between them.
     pub fn fill_polygon(&mut self, pts: &[(f32, f32)], strength: f32) {
         let (min_x, max_x) = pts
             .iter()
@@ -85,20 +87,35 @@ impl Mask {
             .iter()
             .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
         let (x0, y0, x1, y1) = self.bounds(min_x, min_y, max_x, max_y);
+        let mut hits = vec![0u32; x1.saturating_sub(x0)];
+        let mut crossings = Vec::with_capacity(pts.len());
         for y in y0..y1 {
-            for x in x0..x1 {
-                let mut inside = 0;
-                for sy in 0..SUB {
-                    for sx in 0..SUB {
-                        let px = x as f32 + (sx as f32 + 0.5) / SUB as f32;
-                        let py = y as f32 + (sy as f32 + 0.5) / SUB as f32;
-                        if point_in_polygon(px, py, pts) {
-                            inside += 1;
-                        }
+            hits.fill(0);
+            for sy in 0..SUB {
+                let py = y as f32 + (sy as f32 + 0.5) / SUB as f32;
+                crossings.clear();
+                let mut j = pts.len() - 1;
+                for i in 0..pts.len() {
+                    let ((xi, yi), (xj, yj)) = (pts[i], pts[j]);
+                    if (yi > py) != (yj > py) {
+                        crossings.push(xi + (py - yi) * (xj - xi) / (yj - yi));
+                    }
+                    j = i;
+                }
+                crossings.sort_by(f32::total_cmp);
+                for span in crossings.chunks_exact(2) {
+                    // Sub-sample k of pixel x sits at x + (k + 0.5) / SUB.
+                    let first =
+                        ((span[0] * SUB as f32 - 0.5).ceil()).max((x0 * SUB) as f32) as usize;
+                    let end = ((span[1] * SUB as f32 - 0.5).ceil()).min((x1 * SUB) as f32) as usize;
+                    for sample in first..end.max(first) {
+                        hits[sample / SUB - x0] += 1;
                     }
                 }
-                if inside > 0 {
-                    self.put(x, y, strength * inside as f32 / (SUB * SUB) as f32);
+            }
+            for (i, &n) in hits.iter().enumerate() {
+                if n > 0 {
+                    self.put(x0 + i, y, strength * n as f32 / (SUB * SUB) as f32);
                 }
             }
         }
@@ -191,6 +208,7 @@ fn box_blur(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize, horizont
     }
 }
 
+#[cfg(test)]
 fn point_in_polygon(x: f32, y: f32, pts: &[(f32, f32)]) -> bool {
     let mut inside = false;
     let mut j = pts.len() - 1;
@@ -290,6 +308,25 @@ pub fn rotate(
         .collect()
 }
 
+/// Runs `f(0..n)` across all cores and returns the results in order.
+pub fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    let threads = std::thread::available_parallelism().map_or(4, |t| t.get());
+    let chunk = n.div_ceil(threads).max(1);
+    let f = &f;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..n)
+            .step_by(chunk)
+            .map(|start| {
+                scope.spawn(move || (start..(start + chunk).min(n)).map(f).collect::<Vec<_>>())
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("sprite worker panicked"))
+            .collect()
+    })
+}
+
 /// Shelf packer: sprites go left to right in rows; one big image at the end.
 pub struct AtlasBuilder {
     width: u32,
@@ -346,5 +383,38 @@ impl AtlasBuilder {
             }
         }
         atlas
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scanline_fill_matches_per_sample_point_test() {
+        // A concave star, off-grid, partly outside the mask.
+        let star: Vec<(f32, f32)> = (0..10)
+            .map(|i| {
+                let a = i as f32 * std::f32::consts::PI / 5.0 + 0.3;
+                let r = if i % 2 == 0 { 21.3 } else { 8.7 };
+                (19.4 + a.cos() * r, 17.9 + a.sin() * r)
+            })
+            .collect();
+        let mut fast = Mask::new(36, 36);
+        fast.fill_polygon(&star, 1.0);
+        for y in 0..36 {
+            for x in 0..36 {
+                let mut inside = 0;
+                for sy in 0..SUB {
+                    for sx in 0..SUB {
+                        let px = x as f32 + (sx as f32 + 0.5) / SUB as f32;
+                        let py = y as f32 + (sy as f32 + 0.5) / SUB as f32;
+                        inside += u32::from(point_in_polygon(px, py, &star));
+                    }
+                }
+                let expected = inside as f32 / (SUB * SUB) as f32;
+                assert_eq!(fast.v[y * 36 + x], expected, "pixel {x},{y}");
+            }
+        }
     }
 }

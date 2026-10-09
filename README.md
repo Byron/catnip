@@ -31,10 +31,15 @@ If you start it from another terminal, it opens itself in kitty (or Ghostty).
 | Esc / P | pause |
 | Q | quit |
 
-Enemies come in waves: chasers, swarms, shooters that keep their distance, and
-tanks that split apart when destroyed. Quick kills build a score multiplier up
-to ×8, and getting hit resets it. Your best score is kept in
-`~/.local/share/glowstorm/best_score`.
+Enemies come in waves, and every attack starts with a visible wind-up:
+chasers lunge, swarms flank, shooters lead their shots, and tanks slam out a
+shockwave when you get close. Every fifth wave, PRISM arrives: a three-phase
+boss with bullet rings, spirals, charges and summoned minions.
+
+Your gun heats up as you fire and locks for a second if it overheats, and
+shots lose damage over distance, so it pays to get close. Quick kills build a
+multiplier up to ×8 with a rising note for every kill in the chain; getting hit
+resets it. Your best score is kept in `~/.local/share/glowstorm/best_score`.
 
 ## How it works
 

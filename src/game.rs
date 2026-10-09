@@ -12,6 +12,9 @@ use crossterm::event::KeyCode;
 
 use crate::art::{Hue, WALL, WORLD_H, WORLD_W};
 
+mod boss;
+pub use boss::{BOSS_RADIUS, Boss};
+
 // ---------------------------------------------------------------- math
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -230,6 +233,15 @@ impl Kind {
     }
 }
 
+/// What an enemy is doing. Attacks always start with a visible wind-up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Act {
+    Move,
+    Windup,
+    Strike,
+    Recover,
+}
+
 pub struct Enemy {
     pub kind: Kind,
     pub pos: V2,
@@ -239,7 +251,39 @@ pub struct Enemy {
     pub spin: f32,
     pub facing: f32,
     cooldown: f32,
-    phase: f32,
+    pub phase: f32,
+    pub act: Act,
+    act_t: f32,
+    aim: V2,
+}
+
+impl Enemy {
+    pub fn winding_up(&self) -> bool {
+        self.act == Act::Windup
+    }
+}
+
+/// A tank's ground-pound: an expanding ring that hurts where it passes.
+pub struct Shockwave {
+    pub pos: V2,
+    pub r: f32,
+    hit: bool,
+}
+
+/// Floating "+40" / "X3" text.
+pub struct Popup {
+    pub pos: V2,
+    pub text: String,
+    pub t: f32,
+    pub combo: bool,
+}
+
+/// Background specks that drift and get blown around by explosions.
+pub struct Mote {
+    pub pos: V2,
+    vel: V2,
+    drift: V2,
+    pub hue: usize,
 }
 
 pub struct Bullet {
@@ -336,6 +380,12 @@ pub const DASH_COOLDOWN: f32 = 1.3;
 const SPAWN_TIME: f32 = 0.9;
 const MAX_PARTICLES: usize = 900;
 const RAPID_TIME: f32 = 7.0;
+const ORB_SPEED: f32 = 340.0;
+const MAX_ORBS: usize = 450;
+pub const SHOCK_RADIUS: f32 = 270.0;
+const SHOCK_SPEED: f32 = 560.0;
+const MOTES: usize = 90;
+pub const POPUP_TIME: f32 = 0.8;
 
 impl Player {
     fn new() -> Self {
@@ -381,7 +431,7 @@ pub struct Game {
     budget: i32,
     spawn_cd: f32,
     pub banner: f32,
-    wave_clear: f32,
+    pub wave_clear: f32,
     pub score: u64,
     pub best: u64,
     pub new_best: bool,
@@ -393,6 +443,16 @@ pub struct Game {
     pub sfx: Vec<Sfx>,
     best_path: Option<PathBuf>,
     dev: DevFlags,
+    pub shockwaves: Vec<Shockwave>,
+    pub popups: Vec<Popup>,
+    pub motes: Vec<Mote>,
+    pub boss: Option<Boss>,
+    /// Seconds until the boss arrives (WARNING is shown meanwhile).
+    pub boss_pending: f32,
+    /// White screen flash, seconds left.
+    pub flash: f32,
+    slowmo: f32,
+    slowmo_scale: f32,
 }
 
 /// Developer switches read from the environment, for testing later waves:
@@ -424,7 +484,7 @@ impl Game {
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| s.trim().parse().ok())
             .unwrap_or(0);
-        Self {
+        let mut game = Self {
             state: State::Title,
             player: Player::new(),
             enemies: Vec::new(),
@@ -455,7 +515,26 @@ impl Game {
             sfx: Vec::new(),
             best_path,
             dev: DevFlags::from_env(),
+            shockwaves: Vec::new(),
+            popups: Vec::new(),
+            motes: Vec::new(),
+            boss: None,
+            boss_pending: 0.0,
+            flash: 0.0,
+            slowmo: 0.0,
+            slowmo_scale: 1.0,
+        };
+        for i in 0..MOTES {
+            let pos = v2(game.rng.range(0.0, WORLD_W), game.rng.range(0.0, WORLD_H));
+            let drift = game.rng.dir() * game.rng.range(6.0, 22.0);
+            game.motes.push(Mote {
+                pos,
+                vel: drift,
+                drift,
+                hue: i % 2,
+            });
         }
+        game
     }
 
     pub fn multiplier(&self) -> u64 {
@@ -473,10 +552,18 @@ impl Game {
 
     fn start_wave(&mut self, wave: u32) {
         self.wave = wave;
-        self.budget = 6 + 4 * wave as i32;
-        self.banner = 2.0;
         self.spawn_cd = 0.0;
-        self.sfx.push(Sfx::Wave);
+        if wave.is_multiple_of(5) {
+            // Boss wave: no regular spawns, the boss brings its own minions.
+            self.budget = 0;
+            self.banner = 0.0;
+            self.boss_pending = 2.6;
+            self.sfx.push(Sfx::Siren);
+        } else {
+            self.budget = 6 + 4 * wave as i32;
+            self.banner = 2.0;
+            self.sfx.push(Sfx::Wave);
+        }
     }
 
     pub fn on_focus_lost(&mut self) {
@@ -486,6 +573,13 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32, input: &Input, view: &View) {
+        self.flash = (self.flash - dt).max(0.0);
+        let dt = if self.slowmo > 0.0 {
+            self.slowmo -= dt;
+            dt * self.slowmo_scale
+        } else {
+            dt
+        };
         self.time += dt;
         let confirm = input.clicked || input.hit(&[KeyCode::Enter]);
         match self.state {
@@ -694,7 +788,12 @@ impl Game {
     fn update_world(&mut self, dt: f32) {
         self.update_waves(dt);
         self.update_enemies(dt);
+        self.update_boss(dt);
         self.update_bullets(dt);
+        self.shockwaves.retain_mut(|w| {
+            w.r += SHOCK_SPEED * dt;
+            w.r < SHOCK_RADIUS
+        });
         if self.state == State::Playing {
             self.player_collisions();
             self.update_pickups(dt);
@@ -711,6 +810,12 @@ impl Game {
         if self.state != State::Playing {
             return;
         }
+        if self.boss_pending > 0.0 {
+            self.boss_pending -= dt;
+            if self.boss_pending <= 0.0 {
+                self.spawn_boss();
+            }
+        }
         if self.wave_clear > 0.0 {
             self.wave_clear -= dt;
             if self.wave_clear <= 0.0 {
@@ -722,9 +827,18 @@ impl Game {
                 self.spawn_cd = (0.95 - 0.05 * self.wave as f32).max(0.25);
                 self.spawn_group();
             }
-        } else if self.spawns.is_empty() && self.enemies.is_empty() {
-            self.wave_clear = 1.4;
-            self.score += 100 * self.wave as u64;
+        } else if self.spawns.is_empty()
+            && self.enemies.is_empty()
+            && self.boss.is_none()
+            && self.boss_pending <= 0.0
+        {
+            self.wave_clear = 1.8;
+            let bonus = 100 * self.wave as u64;
+            self.score += bonus;
+            self.slow(0.6, 0.35);
+            self.flash = 0.08;
+            self.sfx.push(Sfx::WaveClear);
+            self.popup(self.player.pos + v2(0.0, -46.0), format!("+{bonus}"), true);
         }
 
         let mut ready = Vec::new();
@@ -809,45 +923,127 @@ impl Game {
             facing: (self.player.pos - pos).angle(),
             cooldown,
             phase,
+            act: Act::Move,
+            act_t: 0.0,
+            aim: V2::default(),
         });
     }
 
     fn update_enemies(&mut self, dt: f32) {
         let target = self.player.pos;
+        let target_vel = self.player.vel;
         let chasing = self.state == State::Playing;
         let speedup = 1.0 + 0.04 * self.wave as f32;
+        let fan = self.wave >= 6;
         let mut shots = Vec::new();
+        let mut shocks = Vec::new();
+        let mut lunged = false;
         for e in &mut self.enemies {
             let to_player = target - e.pos;
             let dist = to_player.len();
             let dir = to_player.norm();
             e.flash -= dt;
-            let (desired, steer) = match e.kind {
-                Kind::Chaser => (dir * 230.0 * speedup, 3.0),
-                Kind::Swarm => {
-                    let wobble = dir.perp() * ((self.time * 7.0 + e.phase).sin() * 220.0);
-                    (dir * 330.0 * speedup + wobble, 4.0)
+            e.act_t -= dt;
+            e.cooldown -= dt;
+            let mut desired = V2::default();
+            let mut steer = 3.0;
+            match (e.kind, e.act) {
+                (Kind::Chaser, Act::Move) => {
+                    desired = dir * 230.0 * speedup;
+                    if chasing && dist < 300.0 && e.cooldown <= 0.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 0.45;
+                    }
                 }
-                Kind::Shooter => {
+                (Kind::Chaser, Act::Windup) => {
+                    // Brake and lock on; the lunge direction is fixed at release.
+                    steer = 10.0;
+                    e.aim = dir;
+                    if e.act_t <= 0.0 {
+                        e.act = Act::Strike;
+                        e.act_t = 0.3;
+                        e.vel = e.aim * 980.0;
+                        lunged = true;
+                    }
+                }
+                (Kind::Chaser, Act::Strike) => {
+                    steer = 0.0;
+                    if e.act_t <= 0.0 {
+                        e.act = Act::Recover;
+                        e.act_t = 0.45;
+                        e.cooldown = 1.9 + (e.phase * 3.0).fract();
+                    }
+                }
+                (_, Act::Recover) => {
+                    steer = 4.0;
+                    if e.act_t <= 0.0 {
+                        e.act = Act::Move;
+                    }
+                }
+                (Kind::Swarm, _) => {
+                    // Flank: come in at an angle from either side, converge up close.
+                    let side = if e.phase > TAU / 2.0 { 1.0 } else { -1.0 };
+                    let spread = ((dist - 120.0) / 450.0).clamp(0.0, 1.0);
+                    let heading = V2::from_angle(dir.angle() + side * spread);
+                    let wobble = dir.perp() * ((self.time * 7.0 + e.phase).sin() * 90.0);
+                    desired = heading * 330.0 * speedup + wobble;
+                    steer = 4.0;
+                }
+                (Kind::Shooter, Act::Move) => {
                     let radial = if dist > 460.0 {
                         1.0
+                    } else if dist < 200.0 {
+                        -1.7
                     } else if dist < 320.0 {
                         -1.0
                     } else {
                         0.0
                     };
                     let strafe = if e.phase > TAU / 2.0 { 1.0 } else { -1.0 };
-                    e.cooldown -= dt;
-                    if e.cooldown <= 0.0 && dist < 950.0 && chasing {
-                        e.cooldown = 1.4 + (e.phase * 7.0).fract() * 0.9;
-                        shots.push((e.pos + dir * 22.0, dir));
+                    desired = dir * radial * 210.0 + dir.perp() * strafe * 120.0;
+                    steer = 2.5;
+                    if chasing && e.cooldown <= 0.0 && dist < 950.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 0.4;
                     }
-                    (dir * radial * 210.0 + dir.perp() * strafe * 120.0, 2.5)
                 }
-                Kind::Tank => (dir * 85.0 * speedup, 1.5),
-            };
+                (Kind::Shooter, Act::Windup) => {
+                    steer = 6.0;
+                    if e.act_t <= 0.0 {
+                        // Lead the target: aim where the player is heading.
+                        let lead = (dist / ORB_SPEED).min(0.9) * 0.8;
+                        let aim = (target + target_vel * lead - e.pos).norm();
+                        let spread: &[f32] = if fan { &[-0.22, 0.0, 0.22] } else { &[0.0] };
+                        for a in spread {
+                            shots.push((e.pos + aim * 22.0, V2::from_angle(aim.angle() + a)));
+                        }
+                        e.act = Act::Move;
+                        e.cooldown = 1.5 + (e.phase * 7.0).fract() * 0.9;
+                    }
+                }
+                (Kind::Tank, Act::Move) => {
+                    desired = dir * 85.0 * speedup;
+                    steer = 1.5;
+                    if chasing && dist < 240.0 && e.cooldown <= 0.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 0.6;
+                    }
+                }
+                (Kind::Tank, Act::Windup) => {
+                    steer = 6.0;
+                    if e.act_t <= 0.0 {
+                        shocks.push(e.pos);
+                        e.act = Act::Recover;
+                        e.act_t = 0.5;
+                        e.cooldown = 3.2;
+                    }
+                }
+                _ => {}
+            }
             let desired = if chasing { desired } else { V2::default() };
-            e.vel += (desired - e.vel) * (1.0 - (-steer * dt).exp());
+            if steer > 0.0 {
+                e.vel += (desired - e.vel) * (1.0 - (-steer * dt).exp());
+            }
             e.pos += e.vel * dt;
             let r = e.kind.radius() + WALL;
             if e.pos.x < r || e.pos.x > WORLD_W - r {
@@ -858,14 +1054,14 @@ impl Game {
                 e.pos.y = e.pos.y.clamp(r, WORLD_H - r);
                 e.vel.y = -e.vel.y;
             }
-            e.spin += dt
-                * match e.kind {
-                    Kind::Chaser => 4.0,
-                    Kind::Swarm => 7.0,
-                    Kind::Tank => 0.8,
-                    Kind::Shooter => 0.0,
-                };
-            // Shooters turn smoothly to face the player.
+            let spin = match e.kind {
+                Kind::Chaser => 4.0,
+                Kind::Swarm => 7.0,
+                Kind::Tank => 0.8,
+                Kind::Shooter => 0.0,
+            };
+            // Winding up spins faster, part of the tell.
+            e.spin += dt * spin * if e.act == Act::Windup { 3.5 } else { 1.0 };
             let turn = (dir.angle() - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;
             e.facing += turn * (1.0 - (-6.0 * dt).exp());
         }
@@ -885,13 +1081,24 @@ impl Game {
             }
         }
 
-        for (pos, dir) in shots {
-            self.orbs.push(Orb {
-                pos,
-                vel: dir * 340.0,
-                life: 4.0,
-            });
+        if lunged {
+            self.sfx.push(Sfx::Lunge);
+        }
+        if !shots.is_empty() {
             self.sfx.push(Sfx::EnemyShoot);
+        }
+        for (pos, dir) in shots {
+            self.add_orb(pos, dir * ORB_SPEED);
+        }
+        for pos in shocks {
+            self.shockwaves.push(Shockwave {
+                pos,
+                r: 0.0,
+                hit: false,
+            });
+            self.shake = (self.shake + 7.0).min(18.0);
+            self.sfx.push(Sfx::Shock);
+            self.push_motes(pos, 320.0, 260.0);
         }
         let inside =
             |p: V2| p.x > WALL && p.y > WALL && p.x < WORLD_W - WALL && p.y < WORLD_H - WALL;
@@ -906,6 +1113,7 @@ impl Game {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();
         let enemies = &mut self.enemies;
+        let boss = &mut self.boss;
         self.bullets.retain_mut(|b| {
             b.prev = b.pos;
             b.pos += b.vel * dt;
@@ -924,6 +1132,21 @@ impl Game {
                     e.kind.hue(),
                     damage,
                 ));
+                return false;
+            }
+            if let Some(boss) = boss.as_mut()
+                && segment_distance(boss.pos, b.prev, b.pos) < BOSS_RADIUS + 5.0
+            {
+                let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
+                // Invulnerable while flying in: the shot just sparks off.
+                let damage = if boss.entering > 0.0 {
+                    0.0
+                } else {
+                    bullet_damage(b.traveled)
+                };
+                boss.hp -= damage;
+                boss.flash = 0.05;
+                hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
                 return false;
             }
             let lo = WALL;
@@ -959,9 +1182,28 @@ impl Game {
     }
 
     fn kill(&mut self, e: Enemy) {
+        let before = self.multiplier();
         self.chain += 1;
         self.chain_t = 2.2;
-        self.score += e.kind.score() * self.multiplier();
+        let points = e.kind.score() * self.multiplier();
+        self.score += points;
+        self.popup(e.pos, format!("+{points}"), false);
+        // Each kill in a chain plays the next note up the scale.
+        if self.chain >= 2 {
+            self.sfx.push(Sfx::Combo((self.chain - 2).min(255) as u8));
+        }
+        if self.multiplier() > before {
+            let mult = self.multiplier();
+            self.popup(self.player.pos + v2(0.0, -52.0), format!("X{mult}"), true);
+            self.sfx.push(Sfx::LevelUp);
+            self.rings.push(Ring {
+                pos: self.player.pos,
+                t: 0.0,
+                dur: 0.45,
+                hue: Hue::Yellow,
+                inward: false,
+            });
+        }
         let big = e.kind == Kind::Tank;
         let hue = e.kind.hue();
         self.rings.push(Ring {
@@ -983,11 +1225,17 @@ impl Game {
             let v = self.rng.dir() * self.rng.range(40.0, 200.0);
             self.emit(e.pos, v, 0.25, Hue::White, 1);
         }
+        self.push_motes(
+            e.pos,
+            if big { 420.0 } else { 260.0 },
+            if big { 420.0 } else { 240.0 },
+        );
         self.shake = (self.shake + if big { 10.0 } else { 3.5 }).min(18.0);
         self.sfx
             .push(if big { Sfx::BigExplode } else { Sfx::Explode });
         if big {
             self.hitstop = 0.04;
+            self.flash = 0.05;
             for i in 0..3 {
                 let dir = V2::from_angle(i as f32 * TAU / 3.0 + self.rng.unit());
                 self.add_enemy(Kind::Chaser, e.pos + dir * 26.0, dir * 380.0);
@@ -1013,19 +1261,38 @@ impl Game {
         if p.invuln > 0.0 || p.dashing() || self.dev.god {
             return;
         }
-        let touched = self
+        let at = p.pos;
+        let mut source = self
             .enemies
             .iter()
-            .find(|e| (e.pos - p.pos).len() < e.kind.radius() + PLAYER_RADIUS)
+            .find(|e| (e.pos - at).len() < e.kind.radius() + PLAYER_RADIUS)
             .map(|e| e.pos);
-        let orb = self
-            .orbs
-            .iter()
-            .position(|o| (o.pos - p.pos).len() < 9.0 + PLAYER_RADIUS);
-        let source = match (touched, orb) {
-            (Some(pos), _) => pos,
-            (None, Some(i)) => self.orbs.swap_remove(i).pos,
-            (None, None) => return,
+        if source.is_none() {
+            source = self
+                .boss
+                .as_ref()
+                .filter(|b| b.entering <= 0.0 && (b.pos - at).len() < BOSS_RADIUS + PLAYER_RADIUS)
+                .map(|b| b.pos);
+        }
+        if source.is_none()
+            && let Some(i) = self
+                .orbs
+                .iter()
+                .position(|o| (o.pos - at).len() < 9.0 + PLAYER_RADIUS)
+        {
+            source = Some(self.orbs.swap_remove(i).pos);
+        }
+        if source.is_none()
+            && let Some(w) = self
+                .shockwaves
+                .iter_mut()
+                .find(|w| !w.hit && ((at - w.pos).len() - w.r).abs() < 16.0 + PLAYER_RADIUS)
+        {
+            w.hit = true;
+            source = Some(w.pos);
+        }
+        let Some(source) = source else {
+            return;
         };
 
         let p = &mut self.player;
@@ -1054,6 +1321,8 @@ impl Game {
         if self.player.hp <= 0 {
             self.state = State::Dying;
             self.state_t = 1.8;
+            self.slow(1.0, 0.35);
+            self.flash = 0.12;
             self.sfx.push(Sfx::BigExplode);
             self.rings.push(Ring {
                 pos,
@@ -1133,6 +1402,58 @@ impl Game {
             g.life -= dt;
             g.life > 0.0
         });
+        self.popups.retain_mut(|p| {
+            p.t += dt;
+            p.pos.y -= 60.0 * dt;
+            p.t < POPUP_TIME
+        });
+        let settle = 1.0 - (-1.2 * dt).exp();
+        for m in &mut self.motes {
+            m.vel += (m.drift - m.vel) * settle;
+            m.pos += m.vel * dt;
+            m.pos.x = m.pos.x.rem_euclid(WORLD_W);
+            m.pos.y = m.pos.y.rem_euclid(WORLD_H);
+        }
+    }
+
+    /// Blows background motes away from an explosion.
+    fn push_motes(&mut self, at: V2, radius: f32, strength: f32) {
+        for m in &mut self.motes {
+            let d = m.pos - at;
+            let len = d.len();
+            if len < radius {
+                m.vel += d.norm() * strength * (1.0 - len / radius);
+            }
+        }
+    }
+
+    fn popup(&mut self, pos: V2, text: String, combo: bool) {
+        if self.popups.len() < 40 {
+            self.popups.push(Popup {
+                pos,
+                text,
+                t: 0.0,
+                combo,
+            });
+        }
+    }
+
+    fn add_orb(&mut self, pos: V2, vel: V2) {
+        if self.orbs.len() < MAX_ORBS {
+            self.orbs.push(Orb {
+                pos,
+                vel,
+                life: 6.0,
+            });
+        }
+    }
+
+    /// Slows game time to `scale` for `seconds` of real time.
+    fn slow(&mut self, seconds: f32, scale: f32) {
+        if self.slowmo <= 0.0 || scale <= self.slowmo_scale {
+            self.slowmo = seconds;
+            self.slowmo_scale = scale;
+        }
     }
 
     fn emit(&mut self, pos: V2, vel: V2, life: f32, hue: Hue, size: usize) {
@@ -1224,5 +1545,55 @@ mod tests {
         assert_eq!(game.multiplier(), 3);
         game.chain = 500;
         assert_eq!(game.multiplier(), 8);
+    }
+}
+#[cfg(test)]
+mod boss_tests {
+    use super::*;
+
+    #[test]
+    fn boss_lands_away_from_a_centered_player_and_keeps_distance() {
+        let mut game = Game::new(3);
+        game.start();
+        game.dev.god = true;
+        game.start_wave(5);
+        let view = View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        };
+        let idle = Input::default();
+        for _ in 0..(60 * 9) {
+            game.update(1.0 / 60.0, &idle, &view);
+        }
+        let boss = game.boss.as_ref().expect("boss spawned on wave 5");
+        let dist = (boss.pos - game.player.pos).len();
+        assert!(dist > 200.0, "boss sits {dist} units from the player");
+    }
+
+    #[test]
+    fn beating_the_boss_pays_out_and_moves_to_the_next_wave() {
+        let mut game = Game::new(5);
+        game.start();
+        game.dev.god = true;
+        game.start_wave(5);
+        let view = View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        };
+        let idle = Input::default();
+        let run = |game: &mut Game, seconds: f32| {
+            for _ in 0..(seconds * 60.0) as usize {
+                game.update(1.0 / 60.0, &idle, &view);
+            }
+        };
+        run(&mut game, 6.0);
+        let score = game.score;
+        game.boss.as_mut().expect("boss is up").hp = 0.0;
+        run(&mut game, 0.5);
+        assert!(game.boss.is_none(), "boss should be gone");
+        assert!(game.score >= score + 1500, "boss bounty paid");
+        assert!(game.pickups.len() >= 3, "boss drops loot");
+        run(&mut game, 6.0);
+        assert_eq!(game.wave, 6, "next wave starts after the boss");
     }
 }

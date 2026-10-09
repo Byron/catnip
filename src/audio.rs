@@ -19,9 +19,20 @@ pub enum Sfx {
     EnemyShoot,
     GameOver,
     Overheat,
+    Lunge,
+    Shock,
+    Siren,
+    BossBlast,
+    Victory,
+    LevelUp,
+    WaveClear,
+    /// One note of the rising combo scale; higher `n` is a higher note.
+    Combo(u8),
 }
 
-const ALL: [Sfx; 11] = [
+pub const COMBO_NOTES: u8 = 12;
+
+const BASIC: [Sfx; 18] = [
     Sfx::Shoot,
     Sfx::Hit,
     Sfx::Explode,
@@ -33,7 +44,26 @@ const ALL: [Sfx; 11] = [
     Sfx::EnemyShoot,
     Sfx::GameOver,
     Sfx::Overheat,
+    Sfx::Lunge,
+    Sfx::Shock,
+    Sfx::Siren,
+    Sfx::BossBlast,
+    Sfx::Victory,
+    Sfx::LevelUp,
+    Sfx::WaveClear,
 ];
+
+impl Sfx {
+    fn index(self) -> usize {
+        match self {
+            Sfx::Combo(n) => BASIC.len() + usize::from(n.min(COMBO_NOTES - 1)),
+            other => BASIC
+                .iter()
+                .position(|&s| s == other)
+                .expect("every other Sfx is in BASIC"),
+        }
+    }
+}
 
 pub struct Audio {
     sink: MixerDeviceSink,
@@ -45,9 +75,10 @@ impl Audio {
     pub fn open() -> Option<Self> {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().ok()?;
         sink.log_on_drop(false);
-        let sounds = ALL
-            .iter()
-            .map(|&sfx| {
+        let sounds = BASIC
+            .into_iter()
+            .chain((0..COMBO_NOTES).map(Sfx::Combo))
+            .map(|sfx| {
                 SamplesBuffer::new(NonZero::<u16>::MIN, NonZero::new(RATE).unwrap(), synth(sfx))
             })
             .collect();
@@ -55,11 +86,7 @@ impl Audio {
     }
 
     pub fn play(&self, sfx: Sfx) {
-        let index = ALL
-            .iter()
-            .position(|&s| s == sfx)
-            .expect("every Sfx is in ALL");
-        self.sink.mixer().add(self.sounds[index].clone());
+        self.sink.mixer().add(self.sounds[sfx.index()].clone());
     }
 }
 
@@ -133,6 +160,11 @@ fn concat(parts: &[Vec<f32>]) -> Vec<f32> {
     parts.concat()
 }
 
+/// A plucked tone: triangle wave with a quick decay.
+fn note(freq: f32, seconds: f32, volume: f32) -> Vec<f32> {
+    sweep(seconds, freq, freq, volume, 1.8, triangle)
+}
+
 fn square(p: f32) -> f32 {
     if p < 0.5 { 1.0 } else { -1.0 }
 }
@@ -183,6 +215,47 @@ fn synth(sfx: Sfx) -> Vec<f32> {
             sweep(0.3, 784.0, 784.0, 0.2, 1.5, triangle),
         ]),
         Sfx::EnemyShoot => sweep(0.12, 520.0, 180.0, 0.08, 1.5, triangle),
+        Sfx::Lunge => mix(
+            rumble(0.16, 0.05, 0.6, 0.28, 29),
+            sweep(0.14, 300.0, 1100.0, 0.07, 1.2, saw),
+        ),
+        Sfx::Shock => mix(
+            sweep(0.6, 95.0, 32.0, 0.55, 1.3, sine),
+            rumble(0.5, 0.25, 0.02, 0.45, 31),
+        ),
+        Sfx::Siren => concat(&[
+            sweep(0.4, 330.0, 660.0, 0.16, 0.2, saw),
+            sweep(0.4, 660.0, 330.0, 0.16, 0.2, saw),
+            sweep(0.4, 330.0, 660.0, 0.16, 0.2, saw),
+            sweep(0.5, 660.0, 300.0, 0.16, 1.0, saw),
+        ]),
+        Sfx::BossBlast => mix(
+            sweep(0.3, 180.0, 60.0, 0.35, 1.5, sine),
+            rumble(0.25, 0.6, 0.1, 0.25, 37),
+        ),
+        Sfx::Victory => concat(&[
+            note(523.0, 0.12, 0.2),
+            note(659.0, 0.12, 0.2),
+            note(784.0, 0.12, 0.2),
+            mix(note(1047.0, 0.9, 0.22), note(784.0, 0.9, 0.12)),
+        ]),
+        Sfx::LevelUp => concat(&[
+            note(784.0, 0.06, 0.16),
+            note(988.0, 0.06, 0.16),
+            note(1319.0, 0.06, 0.16),
+            note(1568.0, 0.25, 0.18),
+        ]),
+        Sfx::WaveClear => concat(&[
+            note(659.0, 0.1, 0.18),
+            mix(note(988.0, 0.45, 0.2), note(1319.0, 0.45, 0.08)),
+        ]),
+        Sfx::Combo(n) => {
+            // Major pentatonic, two octaves up from C5.
+            const STEPS: [f32; COMBO_NOTES as usize] =
+                [0., 2., 4., 7., 9., 12., 14., 16., 19., 21., 24., 26.];
+            let freq = 523.25 * 2f32.powf(STEPS[usize::from(n.min(COMBO_NOTES - 1))] / 12.0);
+            mix(note(freq, 0.16, 0.14), note(freq * 2.0, 0.1, 0.04))
+        }
         // A hiss with a sinking buzz: the gun venting heat.
         Sfx::Overheat => mix(
             rumble(0.6, 0.9, 0.5, 0.25, 23),

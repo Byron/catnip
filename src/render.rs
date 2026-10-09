@@ -11,24 +11,30 @@ use catnip::{
 
 use crate::{
     art::{self, Hue, Sprites, TextSize},
-    game::{BULLET_RANGE, Game, Kind, MAX_HP, PickupKind, State, V2},
+    game::{BULLET_RANGE, Game, Kind, MAX_HP, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2},
 };
 
 pub const ATLAS_ID: u32 = 10;
 pub const FLOOR_ID: u32 = 11;
 /// 1×1 translucent black pixel, stretched behind the HUD row.
 pub const SHADE_ID: u32 = 12;
+/// 1×1 translucent white pixel for screen flashes.
+pub const FLASH_ID: u32 = 13;
 
 // Negative z keeps images below the text layer (HUD, banners).
 const Z_FLOOR: i32 = -1_000_000;
+const Z_MOTES: i32 = -950;
 const Z_RINGS: i32 = -900;
 const Z_PICKUPS: i32 = -800;
 const Z_GHOSTS: i32 = -700;
+const Z_BOSS: i32 = -650;
 const Z_ENEMIES: i32 = -600;
 const Z_BULLETS: i32 = -550;
 const Z_PLAYER: i32 = -400;
 const Z_ORBS: i32 = -350;
 const Z_PARTICLES: i32 = -300;
+const Z_POPUPS: i32 = -200;
+const Z_FLASH: i32 = -90;
 const Z_SHADE: i32 = -100;
 const Z_DIM: i32 = -80;
 const Z_TEXT: i32 = -50;
@@ -45,6 +51,7 @@ pub struct Renderer {
     floor_size: (u32, u32),
     text_rows: Vec<u32>,
     dimmed: bool,
+    flashing: bool,
     pub sprites_drawn: u32,
 }
 
@@ -56,6 +63,7 @@ impl Renderer {
             floor_size,
             text_rows: Vec::new(),
             dimmed: false,
+            flashing: false,
             sprites_drawn: 0,
         }
     }
@@ -95,6 +103,10 @@ impl Renderer {
             Z_FLOOR,
         );
 
+        for m in &game.motes {
+            draw.sprite(sprites.mote[m.hue], m.pos, Z_MOTES);
+        }
+
         for ring in &game.rings {
             if ring.t < 0.0 {
                 continue;
@@ -131,17 +143,46 @@ impl Renderer {
                 Kind::Shooter => &sprites.shooter,
                 Kind::Tank => &sprites.tank,
             };
-            let frames = if e.flash > 0.0 {
+            // Wind-ups blink white and shudder: the tell before an attack.
+            let blink = e.winding_up() && (game.time * 18.0) as i32 % 2 == 0;
+            let frames = if e.flash > 0.0 || blink {
                 &set.flash
             } else {
                 &set.normal
+            };
+            let shudder = if e.winding_up() {
+                V2 {
+                    x: (game.time * 90.0 + e.phase).sin() * 2.5,
+                    y: 0.0,
+                }
+            } else {
+                V2::default()
             };
             let k = match e.kind {
                 Kind::Shooter => art::angle_frame(e.facing, art::SHOOTER_ANGLES, TAU),
                 Kind::Tank => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 6.0),
                 _ => art::angle_frame(e.spin, art::SPIN_FRAMES, TAU / 4.0),
             };
-            draw.sprite(frames[k], e.pos, Z_ENEMIES);
+            draw.sprite(frames[k], e.pos + shudder, Z_ENEMIES);
+        }
+
+        if let Some(b) = &game.boss {
+            draw_boss(&mut draw, sprites, game, b);
+        }
+
+        // Shockwaves: a ring of sparks, thinning as it expands.
+        for w in &game.shockwaves {
+            let count = 44;
+            let size = if w.r < SHOCK_RADIUS * 0.6 { 2 } else { 1 };
+            for i in 0..count {
+                let a = i as f32 * TAU / count as f32 + w.r * 0.004;
+                let at = w.pos
+                    + V2 {
+                        x: a.cos() * w.r,
+                        y: a.sin() * w.r,
+                    };
+                draw.sprite(sprites.spark[Hue::Green.index()][size], at, Z_PARTICLES);
+            }
         }
 
         for b in &game.bullets {
@@ -185,6 +226,31 @@ impl Renderer {
             );
         }
 
+        for p in &game.popups {
+            // Combo callouts are big and yellow; kill scores are small and white.
+            let (size, hue) = if p.combo {
+                (TextSize::Small, Hue::Yellow)
+            } else {
+                (TextSize::Tiny, Hue::White)
+            };
+            // Shrink-free fade: blink out over the last fifth of the life.
+            if p.t > POPUP_TIME * 0.8 && (p.t * 30.0) as i32 % 2 == 0 {
+                continue;
+            }
+            draw_world_text(&mut draw, sprites, size, hue, &p.text, p.pos);
+        }
+        if game.flash > 0.0 {
+            let _ = write!(
+                draw.out,
+                "\x1b[1;1H\x1b_Ga=p,i={FLASH_ID},p=1,c={},r={},z={Z_FLASH},C=1,q=2\x1b\\",
+                win.cols, win.rows
+            );
+            self.flashing = true;
+        } else if self.flashing {
+            kitty::delete_placement(draw.out, FLASH_ID, 1);
+            self.flashing = false;
+        }
+
         self.text(out, game, sprites, win, stats, scale);
         self.sprites_drawn = self.atlas.count();
         self.atlas.finish(out);
@@ -220,6 +286,9 @@ impl Renderer {
                 win.cols
             );
             text.hud(game, stats, self.sprites_drawn);
+            if let Some(b) = &game.boss {
+                text.boss_bar(b.hp / b.max_hp, b.phase(), b.entering);
+            }
         } else {
             kitty::delete_placement(text.out, SHADE_ID, 1);
         }
@@ -266,6 +335,17 @@ impl Renderer {
                 }
                 text.line(win.rows, "38;2;90;100;140", "Esc pause · Q quit");
             }
+            State::Playing
+                if game.boss_pending > 0.0
+                    || game.boss.as_ref().is_some_and(|b| b.entering > 0.0) =>
+            {
+                if (game.time * 4.0) as i32 % 2 == 0 {
+                    text.big(row(0.18), TextSize::Medium, Hue::Red, "WARNING");
+                }
+            }
+            State::Playing if game.wave_clear > 0.0 => {
+                text.big(row(0.2), TextSize::Medium, Hue::Cyan, "WAVE CLEAR");
+            }
             State::Playing if game.banner > 0.0 => {
                 text.big(
                     row(0.2),
@@ -296,6 +376,52 @@ impl Renderer {
             }
             _ => {}
         }
+    }
+}
+
+fn draw_boss(draw: &mut Draw, sprites: &Sprites, game: &Game, b: &crate::game::Boss) {
+    let blink = b.windup > 0.0 && (game.time * 16.0) as i32 % 2 == 0;
+    let white = b.flash > 0.0 || blink;
+    let (shell, core) = if white {
+        (&sprites.boss_shell.flash, &sprites.boss_core.flash)
+    } else {
+        (&sprites.boss_shell.normal, &sprites.boss_core.normal)
+    };
+    let k = art::angle_frame(b.spin, art::BOSS_SHELL_FRAMES, TAU / 8.0);
+    draw.sprite(shell[k], b.pos, Z_BOSS);
+    let k = art::angle_frame(b.core_spin, art::BOSS_CORE_FRAMES, TAU / 3.0);
+    draw.sprite(core[k], b.pos, Z_BOSS + 1);
+    // Charge tell: a blinking dotted line along the dash path.
+    if b.charging() && (game.time * 12.0) as i32 % 2 == 0 {
+        for i in 1..18 {
+            let at = b.pos + b.charge_dir * (i as f32 * 40.0 + 40.0);
+            draw.sprite(sprites.spark[Hue::Violet.index()][1], at, Z_PARTICLES);
+        }
+    }
+}
+
+/// Neon sprite text centered on a world position.
+fn draw_world_text(
+    draw: &mut Draw,
+    sprites: &Sprites,
+    size: TextSize,
+    hue: Hue,
+    text: &str,
+    at: V2,
+) {
+    let font = sprites.font(size, hue);
+    let center = at * draw.scale - draw.cam;
+    let mut x = center.x - font.width(text) / 2.0;
+    let top = center.y - font.height / 2.0;
+    for c in text.chars() {
+        if let Some(frame) = font.glyph(c) {
+            let pos = (
+                (x - font.pad).round() as i32,
+                (top - font.pad).round() as i32,
+            );
+            draw.placer.place(draw.out, frame.rect, pos, Z_POPUPS);
+        }
+        x += font.advance;
     }
 }
 
@@ -393,6 +519,36 @@ impl Text<'_> {
             x += font.advance;
         }
         (font.height / cell_h as f32).ceil() as u32
+    }
+
+    /// Boss name and a segmented health bar under the HUD row.
+    fn boss_bar(&mut self, health: f32, phase: u32, entering: f32) {
+        const SEGMENTS: usize = 48;
+        let r = self.big(3, TextSize::Small, Hue::Violet, "PRISM");
+        let cell_h = self.win.cell().1 as f32;
+        let y = (3 + r) as f32 * cell_h - cell_h * 0.3;
+        let seg = self.sprites.boss_seg.rect;
+        let spacing = 10.0 * self.scale;
+        let left = self.win.width as f32 / 2.0 - spacing * (SEGMENTS as f32 - 1.0) / 2.0;
+        // The bar fills up during the entrance.
+        let shown = if entering > 0.0 {
+            1.0 - entering / 2.4
+        } else {
+            health
+        };
+        let lit = (shown * SEGMENTS as f32).ceil() as usize;
+        for i in 0..SEGMENTS {
+            let frame = if i >= lit {
+                self.sprites.heat_off.rect
+            } else if phase >= 3 {
+                self.sprites.heat[3].rect
+            } else {
+                seg
+            };
+            let x = left + i as f32 * spacing - frame.w as f32 / 2.0;
+            let at = (x.round() as i32, (y - frame.h as f32 / 2.0).round() as i32);
+            self.placer.place(self.out, frame, at, Z_TEXT);
+        }
     }
 
     fn hud(&mut self, game: &Game, stats: &Stats, sprites: u32) {

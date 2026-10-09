@@ -5,7 +5,7 @@ pub const COLS: usize = 5;
 pub const ROWS: usize = 7;
 
 /// Characters the font covers, in a fixed order.
-pub const CHARSET: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!, ";
+pub const CHARSET: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!,+ ";
 
 pub fn glyph(c: char) -> Option<[&'static str; ROWS]> {
     Some(match c.to_ascii_uppercase() {
@@ -122,6 +122,9 @@ pub fn glyph(c: char) -> Option<[&'static str; ROWS]> {
         ],
         ',' => [
             ".....", ".....", ".....", ".....", ".##..", "..#..", ".#...",
+        ],
+        '+' => [
+            ".....", "..#..", "..#..", "#####", "..#..", "..#..", ".....",
         ],
         ' ' => ["....."; ROWS],
         _ => return None,

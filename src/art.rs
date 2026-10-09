@@ -4,7 +4,9 @@
 use std::f32::consts::{PI, TAU};
 
 use catnip::font;
-use catnip::gfx::{AtlasBuilder, Color, Frame, Image, Mask, WHITE, glow_dot, hex, neon, rotate};
+use catnip::gfx::{
+    AtlasBuilder, Color, Frame, Image, Mask, WHITE, glow_dot, hex, neon, par_map, rotate,
+};
 use catnip::term::Window;
 
 pub const WORLD_W: f32 = 2400.0;
@@ -17,6 +19,8 @@ pub const SHOOTER_ANGLES: usize = 32;
 pub const SPIN_FRAMES: usize = 16;
 pub const RING_FRAMES: usize = 9;
 pub const SPARK_SIZES: [f32; 3] = [5.0, 9.0, 15.0];
+pub const BOSS_SHELL_FRAMES: usize = 16;
+pub const BOSS_CORE_FRAMES: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hue {
@@ -27,9 +31,10 @@ pub enum Hue {
     Green,
     White,
     Red,
+    Violet,
 }
 
-pub const HUES: [Hue; 7] = [
+pub const HUES: [Hue; 8] = [
     Hue::Cyan,
     Hue::Magenta,
     Hue::Yellow,
@@ -37,6 +42,7 @@ pub const HUES: [Hue; 7] = [
     Hue::Green,
     Hue::White,
     Hue::Red,
+    Hue::Violet,
 ];
 
 impl Hue {
@@ -49,6 +55,7 @@ impl Hue {
             Hue::Green => hex(0x5dff6a),
             Hue::White => WHITE,
             Hue::Red => hex(0xff3b4e),
+            Hue::Violet => hex(0xb44dff),
         }
     }
 
@@ -85,6 +92,12 @@ pub struct Sprites {
     /// Heat bar segments: lit cool → hot, then unlit.
     pub heat: [Frame; 4],
     pub heat_off: Frame,
+    pub boss_shell: Flashing,
+    pub boss_core: Flashing,
+    /// Boss health bar segment.
+    pub boss_seg: Frame,
+    /// Dim drifting background specks: [cyan, violet].
+    pub mote: [Frame; 2],
     fonts: Vec<(TextSize, Hue, Font)>,
 }
 
@@ -103,6 +116,7 @@ pub enum TextSize {
     Large,
     Medium,
     Small,
+    Tiny,
 }
 
 impl TextSize {
@@ -112,6 +126,7 @@ impl TextSize {
             TextSize::Large => 11.0,
             TextSize::Medium => 7.0,
             TextSize::Small => 4.5,
+            TextSize::Tiny => 2.6,
         }
     }
 }
@@ -140,13 +155,16 @@ impl Font {
 }
 
 /// The text styles the game uses; only these get rendered.
-const FONT_STYLES: [(TextSize, Hue); 6] = [
+const FONT_STYLES: [(TextSize, Hue); 9] = [
     (TextSize::Large, Hue::Cyan),
     (TextSize::Medium, Hue::Yellow),
     (TextSize::Medium, Hue::Cyan),
     (TextSize::Medium, Hue::Red),
     (TextSize::Small, Hue::White),
     (TextSize::Small, Hue::Yellow),
+    (TextSize::Small, Hue::Violet),
+    (TextSize::Tiny, Hue::White),
+    (TextSize::Tiny, Hue::Yellow),
 ];
 
 fn build_font(atlas: &mut AtlasBuilder, s: f32, size: TextSize, hue: Hue) -> Font {
@@ -155,19 +173,21 @@ fn build_font(atlas: &mut AtlasBuilder, s: f32, size: TextSize, hue: Hue) -> Fon
     let w = (font::COLS as f32 * px + pad * 2.0).ceil() as u32;
     let h = (font::ROWS as f32 * px + pad * 2.0).ceil() as u32;
     let gap = px * 0.08;
-    let glyphs = font::CHARSET
-        .chars()
-        .map(|c| {
-            let mut lines = Mask::new(w, h);
-            let mut lit = false;
-            for (x, y) in font::pixels(c) {
-                lit = true;
-                let (x0, y0) = (pad + x as f32 * px + gap, pad + y as f32 * px + gap);
-                let (x1, y1) = (x0 + px - gap * 2.0, y0 + px - gap * 2.0);
-                lines.fill_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 1.0);
-            }
-            lit.then(|| atlas.add(neon(&lines, &lines, hue.color(), (px * 1.1) as usize, 1.3)))
-        })
+    let chars: Vec<char> = font::CHARSET.chars().collect();
+    let images = par_map(chars.len(), |i| {
+        let mut lines = Mask::new(w, h);
+        let mut lit = false;
+        for (x, y) in font::pixels(chars[i]) {
+            lit = true;
+            let (x0, y0) = (pad + x as f32 * px + gap, pad + y as f32 * px + gap);
+            let (x1, y1) = (x0 + px - gap * 2.0, y0 + px - gap * 2.0);
+            lines.fill_polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 1.0);
+        }
+        lit.then(|| neon(&lines, &lines, hue.color(), (px * 1.1) as usize, 1.3))
+    });
+    let glyphs = images
+        .into_iter()
+        .map(|img| img.map(|img| atlas.add(img)))
         .collect();
     Font {
         glyphs,
@@ -232,7 +252,7 @@ fn polygon(sides: usize, phase: f32) -> Vec<(f32, f32)> {
         .collect()
 }
 
-type Shape<'a> = &'a dyn Fn(&mut Mask, &mut Mask, (f32, f32), f32, f32);
+type Shape<'a> = &'a (dyn Fn(&mut Mask, &mut Mask, (f32, f32), f32, f32) + Sync);
 
 /// Adds `frames` rotations of a shape (normal + white flash variant).
 fn rotations(
@@ -244,13 +264,20 @@ fn rotations(
     sweep: f32,
     shape: Shape,
 ) -> Flashing {
+    let images = par_map(frames * 2, |i| {
+        let angle = (i / 2) as f32 * sweep / frames as f32;
+        let draw = |l: &mut Mask, b: &mut Mask, c: (f32, f32), r: f32| shape(l, b, c, r, angle);
+        neon_sprite(s, radius, if i % 2 == 0 { color } else { WHITE }, draw)
+    });
     let mut normal = Vec::new();
     let mut flash = Vec::new();
-    for i in 0..frames {
-        let angle = i as f32 * sweep / frames as f32;
-        let draw = |l: &mut Mask, b: &mut Mask, c: (f32, f32), r: f32| shape(l, b, c, r, angle);
-        normal.push(atlas.add(neon_sprite(s, radius, color, draw)));
-        flash.push(atlas.add(neon_sprite(s, radius, WHITE, draw)));
+    for (i, img) in images.into_iter().enumerate() {
+        let frame = atlas.add(img);
+        if i % 2 == 0 {
+            normal.push(frame)
+        } else {
+            flash.push(frame)
+        }
     }
     Flashing { normal, flash }
 }
@@ -263,14 +290,16 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
     let ship = [(1.0, 0.0), (-0.75, 0.7), (-0.35, 0.0), (-0.75, -0.7)];
     let mut player = Vec::new();
     let mut ghost = Vec::new();
-    for i in 0..PLAYER_ANGLES {
+    let ships = par_map(PLAYER_ANGLES, |i| {
         let angle = i as f32 * TAU / PLAYER_ANGLES as f32;
-        let img = neon_sprite(s, 20.0, Hue::Cyan.color(), |l, b, c, r| {
+        neon_sprite(s, 20.0, Hue::Cyan.color(), |l, b, c, r| {
             let pts = rotate(&ship, angle, c, r);
             b.fill_polygon(&pts, 1.0);
             l.stroke_polygon(&pts, line(2.4));
             l.fill_circle(rotate(&[(-0.2, 0.0)], angle, c, r)[0], r * 0.12, 1.0);
-        });
+        })
+    });
+    for img in ships {
         ghost.push(atlas.add(img.with_alpha(0.35)));
         player.push(atlas.add(img));
     }
@@ -358,17 +387,20 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         })
         .collect();
 
+    let ring_images = par_map(HUES.len() * RING_FRAMES, |i| {
+        let (hue, k) = (HUES[i / RING_FRAMES], i % RING_FRAMES);
+        let t = k as f32 / (RING_FRAMES - 1) as f32;
+        neon_sprite(s, 60.0, hue.color(), |l, _, c, r| {
+            l.stroke_circle(c, r * (0.2 + 0.8 * t), line(7.0 - 5.0 * t));
+        })
+        .with_alpha(1.0 - 0.75 * t)
+    });
+    let mut ring_images = ring_images.into_iter();
     let ring = HUES
         .iter()
-        .map(|hue| {
+        .map(|_| {
             (0..RING_FRAMES)
-                .map(|k| {
-                    let t = k as f32 / (RING_FRAMES - 1) as f32;
-                    let img = neon_sprite(s, 60.0, hue.color(), |l, _, c, r| {
-                        l.stroke_circle(c, r * (0.2 + 0.8 * t), line(7.0 - 5.0 * t));
-                    });
-                    atlas.add(img.with_alpha(1.0 - 0.75 * t))
-                })
+                .map(|_| atlas.add(ring_images.next().unwrap()))
                 .collect()
         })
         .collect();
@@ -417,6 +449,41 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
     let heat =
         [hex(0x3df2ff), hex(0xffe14d), hex(0xff8a2b), hex(0xff3b4e)].map(|c| atlas.add(segment(c)));
     let heat_off = atlas.add(segment(hex(0x2a3550)).with_alpha(0.7));
+    let boss_seg = atlas.add(segment(Hue::Violet.color()));
+
+    // Boss: an eight-point shell around a counter-rotating triangle core.
+    let boss_shell = rotations(
+        &mut atlas,
+        s,
+        66.0,
+        Hue::Violet.color(),
+        BOSS_SHELL_FRAMES,
+        TAU / 8.0,
+        &|l, b, c, r, angle| {
+            let outer = rotate(&star(8, 0.74), angle, c, r);
+            let ring = rotate(&polygon(8, PI / 8.0), angle, c, r * 0.56);
+            b.fill_polygon(&outer, 0.8);
+            l.stroke_polygon(&outer, line(3.2));
+            l.stroke_polygon(&ring, line(2.2));
+        },
+    );
+    let boss_core = rotations(
+        &mut atlas,
+        s,
+        26.0,
+        Hue::Magenta.color(),
+        BOSS_CORE_FRAMES,
+        TAU / 3.0,
+        &|l, b, c, r, angle| {
+            let tri = rotate(&polygon(3, 0.0), angle, c, r);
+            b.fill_polygon(&tri, 1.0);
+            l.stroke_polygon(&tri, line(2.6));
+            l.fill_circle(c, r * 0.22, 1.0);
+        },
+    );
+
+    let mote = [Hue::Cyan, Hue::Violet]
+        .map(|h| atlas.add(glow_dot((7.0 * s) as u32, h.color(), 0.2).with_alpha(0.45)));
 
     let bolt_pts = [
         (0.2, -1.0),
@@ -451,6 +518,10 @@ pub fn build_sprites(s: f32) -> (Image, Sprites) {
         hud_heart,
         heat,
         heat_off,
+        boss_shell,
+        boss_core,
+        boss_seg,
+        mote,
         fonts: FONT_STYLES
             .iter()
             .map(|&(size, hue)| (size, hue, build_font(&mut atlas, s, size, hue)))

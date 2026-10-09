@@ -16,7 +16,7 @@ use crossterm::event::{
 };
 
 use game::{Game, Input, V2, View, v2};
-use render::{ATLAS_ID, FLOOR_ID, Renderer, SHADE_ID, Stats};
+use render::{ATLAS_ID, FLASH_ID, FLOOR_ID, Renderer, SHADE_ID, Stats};
 
 const FRAME: Duration = Duration::from_micros(16_667);
 
@@ -104,9 +104,6 @@ fn relaunch_in_supported_terminal() -> bool {
     let mut kitty = Command::new("kitty");
     kitty
         .args(["--detach", "--start-as=maximized", "--title", "Glowstorm"])
-        // Hide the pointer as soon as it rests, and don't bring it back on
-        // movement: the game draws its own reticle.
-        .args(["-o", "mouse_hide_wait=0.01 1000 100000 no"])
         .arg(&exe);
     if quiet(kitty).status().is_ok_and(|s| s.success()) {
         return true;
@@ -114,12 +111,7 @@ fn relaunch_in_supported_terminal() -> bool {
     // Ghostty has no --detach; spawning without waiting leaves it running.
     let mut ghostty = Command::new("ghostty");
     ghostty
-        .args([
-            "--title=Glowstorm",
-            "--maximize=true",
-            "--mouse-hide-while-typing=true",
-            "-e",
-        ])
+        .args(["--title=Glowstorm", "--maximize=true", "-e"])
         .arg(&exe);
     quiet(ghostty).spawn().is_ok()
 }
@@ -137,6 +129,7 @@ fn run(
     kitty::upload(&mut frame, ATLAS_ID, atlas.w, atlas.h, &atlas.rgba)?;
     kitty::upload(&mut frame, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
     kitty::upload(&mut frame, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
+    kitty::upload(&mut frame, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
     out.write_all(&frame)?;
     out.flush()?;
     let mut renderer = Renderer::new((floor.w, floor.h));
