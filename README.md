@@ -107,6 +107,18 @@ crates/
 - Linux (macOS is untested)
 - ALSA for sound; the game runs silently without an audio device
 
+## Resource use
+
+Measured on a laptop (i5-13500H, Intel Iris Xe) with a maximized kitty window:
+
+| | CPU (one core) | Memory |
+|---|---|---|
+| Glowstorm | about 3% | about 17 MB |
+| kitty while playing | about 15% | about 120 MB |
+
+A frame takes about 0.2 ms of CPU and 2–10 KB of escape codes. Integrated
+graphics is enough. Start-up takes a second or two while the art is drawn.
+
 ## Benchmark
 
 ```sh

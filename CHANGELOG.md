@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-10
 
 The first release: Glowstorm, and the Catnip engine it runs on.
 
