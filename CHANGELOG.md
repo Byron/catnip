@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Title screen tells Ghostty players to dash with Space: Ghostty loses the
+  left-button release when right-click is pressed during fire.
+
 ## [0.1.0] - 2026-10-10
 
 The first release: Glowstorm, and the Catnip engine it runs on.

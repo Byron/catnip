@@ -107,6 +107,12 @@ crates/
 - Linux (macOS is untested)
 - ALSA for sound; the game runs silently without an audio device
 
+## Known issues
+
+- **Ghostty on Linux:** pressing right-click while holding left-click makes
+  Ghostty lose the left-button release, so the gun keeps firing until your next
+  left click. Dash with Space instead. kitty isn't affected.
+
 ## Resource use
 
 Measured on a laptop (i5-13500H, Intel Iris Xe) with a maximized kitty window:

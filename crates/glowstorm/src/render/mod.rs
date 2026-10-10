@@ -66,6 +66,8 @@ pub struct Renderer {
     dimmed: bool,
     flashing: bool,
     cards_shown: bool,
+    /// Ghostty loses mouse releases when two buttons are held; the title says so.
+    ghostty: bool,
     pub sprites_drawn: u32,
 }
 
@@ -79,6 +81,7 @@ impl Renderer {
             dimmed: false,
             flashing: false,
             cards_shown: false,
+            ghostty: catnip::term::Terminal::detect() == Some(catnip::term::Terminal::Ghostty),
             sprites_drawn: 0,
         }
     }

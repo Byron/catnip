@@ -80,6 +80,13 @@ impl Renderer {
                     "38;2;200;210;255",
                     "WASD move · mouse aim · hold click fire · space / right-click dash",
                 );
+                if self.ghostty {
+                    text.line(
+                        r + 1,
+                        "38;2;255;225;77",
+                        "Ghostty: dash with space, right-click while firing jams the trigger",
+                    );
+                }
                 // Difficulty menu: the selected one is yellow.
                 let mut r = r + 3;
                 for d in Difficulty::ALL {
