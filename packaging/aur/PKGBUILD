@@ -1,0 +1,43 @@
+# Maintainer: Hemanta Bhusal
+# AUR recipe for Glowstorm, built from the tagged source. To publish: copy to
+# an AUR git repo, run `updpkgsums` once the tag exists, then
+# `makepkg --printsrcinfo > .SRCINFO`.
+pkgname=glowstorm
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Neon twin-stick arena shooter that runs inside kitty and Ghostty"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Hemantabhusal/catnip"
+license=('MIT')
+depends=('alsa-lib' 'gcc-libs' 'glibc')
+makedepends=('cargo')
+optdepends=('kitty: terminal to play in'
+            'ghostty: terminal to play in')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "catnip-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "catnip-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p glowstorm
+}
+
+check() {
+  cd "catnip-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release --workspace
+}
+
+package() {
+  cd "catnip-$pkgver"
+  install -Dm755 target/release/glowstorm "$pkgdir/usr/bin/glowstorm"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

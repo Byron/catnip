@@ -1,10 +1,17 @@
 [package]
-name = "catnip"
+name = "catnip-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A small game engine for the kitty terminal graphics protocol"
+readme = "README.md"
+keywords = ["kitty", "terminal", "graphics", "gamedev", "ghostty"]
+categories = ["game-engines", "rendering", "command-line-interface"]
+
+[lib]
+# Published as catnip-engine (the name catnip is taken); used as `catnip`.
+name = "catnip"
 
 [dependencies]
 base64 = "0.22"

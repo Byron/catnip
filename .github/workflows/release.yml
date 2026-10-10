@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    # Building on 22.04 keeps the glibc requirement low (2.35), so the
+    # binary also runs on older distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ALSA headers (sound)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --release --locked
+      - run: cargo build --release --locked -p glowstorm
+      - name: Package
+        run: |
+          name="glowstorm-${GITHUB_REF_NAME}-x86_64-linux"
+          mkdir "$name"
+          cp target/release/glowstorm README.md LICENSE CHANGELOG.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="[$version]" '/^## /{p = index($0, v) > 0; next} p' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" glowstorm-*.tar.gz* \
+            --title "Glowstorm $GITHUB_REF_NAME" --notes-file notes.md

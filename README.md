@@ -15,11 +15,21 @@ denominator that works in every terminal.
 
 A twin-stick arena shooter, and the first game built on Catnip.
 
-```sh
-cargo run --release
-```
+### Install
 
-If you start it from another terminal, it opens itself in kitty (or Ghostty).
+Glowstorm needs [kitty](https://sw.kovidgoyal.net/kitty/) or
+[Ghostty](https://ghostty.org) to play in. Started from any other terminal, it
+opens itself in one of them.
+
+- **Prebuilt (Linux x86_64):** download `glowstorm-v*-x86_64-linux.tar.gz` from
+  [Releases](https://github.com/Hemantabhusal/catnip/releases), unpack, run
+  `./glowstorm`.
+- **With Cargo:** `cargo install glowstorm`
+- **Arch Linux (AUR):** `yay -S glowstorm`
+- **From source:** `cargo run --release` in this repository.
+
+Sound uses ALSA (`alsa-lib` on Arch, `libasound2` on Debian/Ubuntu); without an
+audio device the game runs silently.
 
 | Control | Action |
 |---|---|
@@ -68,7 +78,7 @@ The repository is a Cargo workspace with two crates:
 
 ```
 crates/
-├── catnip/              the engine, kept free of game-specific code
+├── catnip/              the engine (crate catnip-engine), no game-specific code
 │   ├── src/kitty.rs     graphics protocol: uploads, placements
 │   ├── src/term.rs      terminal setup, window size, input modes
 │   ├── src/gfx.rs       procedural shapes, glow, atlas packing
@@ -93,7 +103,7 @@ crates/
 ## Benchmark
 
 ```sh
-cargo run --release -p catnip --example spike
+cargo run --release -p catnip-engine --example spike
 ```
 
 Moves bouncing sprites around with an on-screen readout of fps and bytes per

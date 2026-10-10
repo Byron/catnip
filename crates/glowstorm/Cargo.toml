@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "A neon twin-stick arena shooter that runs inside kitty"
+description = "A neon twin-stick arena shooter that runs inside kitty and Ghostty"
+readme = "../../README.md"
+keywords = ["game", "terminal", "kitty", "ghostty", "shooter"]
+categories = ["games", "command-line-utilities"]
 
 [dependencies]
-catnip = { path = "../catnip" }
+catnip = { package = "catnip-engine", version = "0.1.0", path = "../catnip" }
 crossterm = "0.28"
