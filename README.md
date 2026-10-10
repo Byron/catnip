@@ -21,12 +21,17 @@ Glowstorm needs [kitty](https://sw.kovidgoyal.net/kitty/) or
 [Ghostty](https://ghostty.org) to play in. Started from any other terminal, it
 opens itself in one of them.
 
-- **Prebuilt (Linux x86_64):** download `glowstorm-v*-x86_64-linux.tar.gz` from
-  [Releases](https://github.com/Hemantabhusal/catnip/releases), unpack, run
-  `./glowstorm`.
-- **With Cargo:** `cargo install glowstorm`
-- **Arch Linux (AUR):** `yay -S glowstorm`
-- **From source:** `cargo run --release` in this repository.
+- **Download:** grab `glowstorm-v*-x86_64-linux.tar.gz` from
+  [Releases](https://github.com/Hemantabhusal/catnip/releases), unpack it and
+  run `./glowstorm`.
+- **Build from source** (needs [Rust](https://rustup.rs) and the ALSA headers,
+  `libasound2-dev` on Debian/Ubuntu):
+
+  ```sh
+  git clone https://github.com/Hemantabhusal/catnip
+  cd catnip
+  cargo run --release
+  ```
 
 Sound uses ALSA (`alsa-lib` on Arch, `libasound2` on Debian/Ubuntu); without an
 audio device the game runs silently.
