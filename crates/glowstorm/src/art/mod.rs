@@ -46,6 +46,12 @@ pub fn scale_for(win: Window) -> f32 {
     const CELL_PX_PER_UNIT: f32 = 19.1;
     let height = win.height as f32;
     let (_, cell_h) = win.cell();
+    if let Some(forced) = std::env::var("GLOWSTORM_SCALE")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+    {
+        return forced.clamp(0.3, MAX_SCALE);
+    }
     // Show between 600 and 1300 units vertically, whatever the font size.
     (cell_h as f32 / CELL_PX_PER_UNIT)
         .clamp(height / 1300.0, height / 600.0)

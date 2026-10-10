@@ -109,7 +109,8 @@ cargo clippy --workspace --all-targets
 ```
 
 `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` turns off damage, and
-`GLOWSTORM_CARDS=1` opens the upgrade screen right away.
+`GLOWSTORM_CARDS=1` opens the upgrade screen right away, and `GLOWSTORM_SCALE=0.8`
+forces a render scale (0.3–2.2).
 Runs with any of them set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
 
 ## License
