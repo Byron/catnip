@@ -347,7 +347,7 @@ fn atlas() -> Vec<u8> {
 fn draw_background(rgba: &mut Vec<u8>, (w, h): (u32, u32), t: f32) {
     rgba.resize((w * h * 4) as usize, 0);
     let shift = (t * 90.0) as u32;
-    for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+    for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let x = i as u32 % w;
         let y = i as u32 / w;
         let v = ((x + shift) ^ (y + shift / 2)) as u8;

@@ -374,7 +374,7 @@ impl Game {
             let v = self.rng.dir() * 120.0;
             self.emit(pos, v, 0.4, Hue::Red, 0);
         }
-        let minions: Vec<Enemy> = self.enemies.drain(..).collect();
+        let minions = std::mem::take(&mut self.enemies);
         for e in minions {
             self.kill(e);
         }

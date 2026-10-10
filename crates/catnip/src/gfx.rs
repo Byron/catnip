@@ -34,7 +34,7 @@ impl Image {
 
     pub fn with_alpha(&self, factor: f32) -> Self {
         let mut out = self.clone();
-        for px in out.rgba.chunks_exact_mut(4) {
+        for px in out.rgba.as_chunks_mut::<4>().0 {
             px[3] = (px[3] as f32 * factor) as u8;
         }
         out
@@ -103,7 +103,7 @@ impl Mask {
                     j = i;
                 }
                 crossings.sort_by(f32::total_cmp);
-                for span in crossings.chunks_exact(2) {
+                for span in crossings.as_chunks::<2>().0 {
                     // Sub-sample k of pixel x sits at x + (k + 0.5) / SUB.
                     let first =
                         ((span[0] * SUB as f32 - 0.5).ceil()).max((x0 * SUB) as f32) as usize;
@@ -241,7 +241,7 @@ pub fn neon(lines: &Mask, body: &Mask, color: Color, glow_radius: usize, glow: f
     let halo = lines.blurred(glow_radius);
     let hot = lerp_color(color, WHITE, 0.55);
     let mut img = Image::new(lines.w as u32, lines.h as u32);
-    for (i, px) in img.rgba.chunks_exact_mut(4).enumerate() {
+    for (i, px) in img.rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         // Premultiplied "over", back to front: halo, body, lines.
         let mut acc = [0.0f32; 4];
         let mut over = |c: Color, a: f32| {

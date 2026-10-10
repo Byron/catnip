@@ -18,7 +18,7 @@ pub fn build_floor(s: f32) -> Image {
         {
             scope.spawn(move || {
                 let first_row = chunk_index * rows_per_chunk;
-                for (i, px) in chunk.chunks_exact_mut(4).enumerate() {
+                for (i, px) in chunk.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let x = (i % w as usize) as f32;
                     let y = (first_row + i / w as usize) as f32;
                     px.copy_from_slice(&floor_pixel(x, y, s));
