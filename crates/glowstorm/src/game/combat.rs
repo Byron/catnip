@@ -99,6 +99,7 @@ impl Game {
                     last_hit: 0,
                     falloff,
                 });
+                self.player.vel += -d * 3.0 * damage;
             }
             self.sfx.push(Sfx::Gatling);
             flashes.push(dir * 280.0 + self.rng.dir() * 100.0);
@@ -133,7 +134,7 @@ impl Game {
                 e.hp -= damage;
                 e.flash = 0.07;
                 let knock = e.kind.spec().knockback;
-                e.vel += b.vel.norm() * knock * damage;
+                e.impulse += b.vel * (knock * damage / BULLET_SPEED);
                 hits.push((
                     e.pos - b.vel.norm() * e.kind.radius(),
                     b.vel,
@@ -157,6 +158,7 @@ impl Game {
                     b.strength() * power
                 };
                 boss.hp -= damage;
+                boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
                 boss.flash = 0.05;
                 hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
                 return false;
@@ -237,7 +239,7 @@ impl Game {
         let count = if big { 45 } else { 16 };
         for _ in 0..count {
             let v = self.rng.dir() * self.rng.range(90.0, if big { 650.0 } else { 480.0 })
-                + e.vel * 0.3;
+                + (e.vel + e.impulse) * 0.3;
             let life = self.rng.range(0.3, 0.8);
             let size = if self.rng.chance(0.3) { 2 } else { 1 };
             self.emit(e.pos, v, life, hue, size);

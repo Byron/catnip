@@ -313,6 +313,7 @@ impl Game {
                     last_hit: 0,
                     falloff,
                 });
+                p.vel += -d * 9.0 * damage;
             }
             sfx.push(Sfx::Shoot);
             let vel = p.vel;

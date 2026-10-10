@@ -240,6 +240,7 @@ fn gatling_fires_spread_volleys_follows_aim_and_fades() {
     assert!(game.bullets[0].vel.y < 0.0 && game.bullets[2].vel.y > 0.0);
     let first = game.bullets[1].damage;
     let origin = game.bullets[1].pos;
+    assert!(game.player.vel.x < 0.0, "barrage kicks the ship backward");
     game.player.pos += v2(0.0, 100.0);
     game.player.aim = TAU / 4.0;
     game.update_gatling(0.025);
@@ -301,6 +302,145 @@ fn gatling_uses_spread_pierce_and_range_upgrades() {
             .all(|b| b.pierce == 1 && !b.falloff && b.range > 1000.0)
     );
     assert!(game.bullets[0].damage < game.bullets[1].damage);
+}
+
+#[test]
+fn normal_shots_transfer_forward_momentum_to_enemies_and_bosses() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for boss_target in [false, true] {
+        let mut game = Game::new(21);
+        game.player.pos = v2(300.0, 500.0);
+        game.player.aim = 0.0;
+        if boss_target {
+            game.wave = 5;
+            game.spawn_boss();
+            let boss = game.boss.as_mut().unwrap();
+            boss.pos = v2(450.0, 500.0);
+            boss.entering = 0.0;
+        } else {
+            game.add_enemy(Kind::Tank, v2(450.0, 500.0), V2::default(), false);
+        }
+        game.update_player(
+            1.0 / 60.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        assert!(game.player.vel.x < 0.0, "normal shots have recoil too");
+        game.update_bullets(0.15);
+        assert!(game.bullets.is_empty(), "impact consumes the shot");
+        let impulse = if boss_target {
+            game.boss.as_ref().unwrap().impulse
+        } else {
+            game.enemies[0].impulse
+        };
+        assert!(
+            impulse.x > 0.4 && impulse.x < 2.0 && impulse.y.abs() < impulse.x * 0.05,
+            "momentum follows the bullet: {impulse:?}"
+        );
+    }
+}
+
+#[test]
+fn gatling_barrage_gently_pushes_a_moving_boss() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let setup = || {
+        let mut game = Game::new(23);
+        game.state = State::Playing;
+        game.wave = 5;
+        game.spawn_boss();
+        let boss = game.boss.as_mut().unwrap();
+        boss.pos = v2(1000.0, 750.0);
+        boss.entering = 0.0;
+        boss.hp = 1000.0;
+        game.player.pos = v2(700.0, 750.0);
+        game
+    };
+    let mut game = setup();
+    let mut idle = setup();
+    game.player.charge = 0.95;
+    game.player.heat = 0.95;
+    game.update_player(1.0 / 60.0, &Input::default(), &view);
+    for _ in 0..90 {
+        game.player.aim = (game.boss.as_ref().unwrap().pos - game.player.pos).angle();
+        game.update_gatling(1.0 / 60.0);
+        game.update_boss(1.0 / 60.0);
+        game.update_bullets(1.0 / 60.0);
+        idle.update_boss(1.0 / 60.0);
+    }
+    let boss = game.boss.as_ref().unwrap();
+    assert!(
+        boss.hp < 900.0,
+        "the barrage lands many pellets: {} at {:?}",
+        boss.hp,
+        boss.pos
+    );
+    let displacement = boss.pos.x - idle.boss.as_ref().unwrap().pos.x;
+    assert!(
+        displacement > 10.0 && displacement < 120.0,
+        "the barrage adds a modest shove beyond normal movement: {displacement}"
+    );
+    assert!(
+        boss.impulse.x > 0.0 && boss.impulse.x < 100.0,
+        "hits build gentle momentum"
+    );
+}
+
+#[test]
+fn bullet_impulse_survives_enemy_attacks_and_damps_at_walls() {
+    let mut game = Game::new(25);
+    game.state = State::Playing;
+    game.player.pos = v2(600.0, 600.0);
+    game.add_enemy(Kind::Chaser, v2(500.0, 500.0), V2::default(), false);
+    let e = &mut game.enemies[0];
+    e.act = Act::Windup;
+    e.act_t = 0.0;
+    e.impulse = v2(-100.0, 0.0);
+    game.update_enemies(1.0 / 60.0);
+    assert_eq!(game.enemies[0].act, Act::Strike);
+    assert!(
+        game.enemies[0].impulse.x < -90.0,
+        "the lunge cannot overwrite hit momentum"
+    );
+    let e = &mut game.enemies[0];
+    e.pos = v2(WALL + e.kind.radius(), 500.0);
+    e.impulse = v2(-1000.0, 0.0);
+    game.update_enemies(1.0 / 60.0);
+    assert_eq!(game.enemies[0].impulse.x, 0.0, "a wall absorbs the impulse");
+}
+
+#[test]
+fn boss_entrance_blocks_damage_and_bullet_impulse() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(27);
+    game.wave = 5;
+    game.spawn_boss();
+    game.boss.as_mut().unwrap().pos = v2(450.0, 500.0);
+    let hp = game.boss.as_ref().unwrap().hp;
+    game.player.pos = v2(300.0, 500.0);
+    game.player.aim = 0.0;
+    game.update_player(
+        1.0 / 60.0,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    game.update_bullets(0.15);
+    assert_eq!(game.boss.as_ref().unwrap().hp, hp);
+    assert_eq!(game.boss.as_ref().unwrap().impulse, V2::default());
 }
 
 #[test]

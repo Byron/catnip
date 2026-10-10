@@ -27,7 +27,7 @@ pub struct Spec {
     /// Relative chance to be picked when it's allowed.
     pub weight: f32,
     pub can_be_elite: bool,
-    /// How far a full-damage hit pushes it back.
+    /// Hit impulse per damage point for a bullet at base speed.
     pub knockback: f32,
     /// Spin speed (rad/s) for the spinning sprite.
     pub spin: f32,
@@ -53,7 +53,7 @@ impl Kind {
             group: 1,
             weight: 1.0,
             can_be_elite: true,
-            knockback: 160.0,
+            knockback: 8.0,
             spin: 0.0,
             faces_player: false,
             big_death: false,
@@ -98,7 +98,7 @@ impl Kind {
                 // At cost 6 tanks would otherwise eat about half of every
                 // budget, and their volleys would dominate the wave.
                 weight: 0.5,
-                knockback: 30.0,
+                knockback: 1.5,
                 spin: 0.8,
                 big_death: true,
                 splits_into: Some((Kind::Chaser, 3)),
@@ -129,6 +129,8 @@ pub struct Enemy {
     pub kind: Kind,
     pub pos: V2,
     pub vel: V2,
+    /// Bullet momentum, damped separately so attacks cannot overwrite it.
+    pub(super) impulse: V2,
     pub(super) hp: f32,
     pub flash: f32,
     pub spin: f32,
@@ -215,6 +217,7 @@ impl Game {
             kind,
             pos,
             vel,
+            impulse: V2::default(),
             hp,
             flash: 0.0,
             spin: phase,
@@ -384,15 +387,18 @@ impl Game {
             if steer > 0.0 {
                 e.vel += (desired - e.vel) * (1.0 - (-steer * dt).exp());
             }
-            e.pos += e.vel * dt;
+            e.pos += (e.vel + e.impulse) * dt;
+            e.impulse = e.impulse * (-4.0 * dt).exp();
             let r = e.kind.radius() + WALL;
             if e.pos.x < r || e.pos.x > WORLD_W - r {
                 e.pos.x = e.pos.x.clamp(r, WORLD_W - r);
                 e.vel.x = -e.vel.x;
+                e.impulse.x = 0.0;
             }
             if e.pos.y < r || e.pos.y > WORLD_H - r {
                 e.pos.y = e.pos.y.clamp(r, WORLD_H - r);
                 e.vel.y = -e.vel.y;
+                e.impulse.y = 0.0;
             }
             let spin = e.kind.spec().spin;
             // Winding up spins faster, part of the tell.

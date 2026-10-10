@@ -20,6 +20,7 @@ pub enum Pattern {
 pub struct Boss {
     pub pos: V2,
     vel: V2,
+    pub(super) impulse: V2,
     pub hp: f32,
     pub max_hp: f32,
     pub flash: f32,
@@ -78,6 +79,7 @@ impl Game {
         self.boss = Some(Boss {
             pos: from,
             vel: V2::default(),
+            impulse: V2::default(),
             hp: max_hp,
             max_hp,
             flash: 0.0,
@@ -149,14 +151,18 @@ impl Game {
             b.vel += (desired - b.vel) * (1.0 - (-2.0 * dt).exp());
             b.pos += b.vel * dt;
         }
+        b.pos += b.impulse * dt;
+        b.impulse = b.impulse * (-4.0 * dt).exp();
         let r = BOSS_RADIUS + WALL;
         if b.pos.x < r || b.pos.x > WORLD_W - r {
             b.pos.x = b.pos.x.clamp(r, WORLD_W - r);
             b.vel.x = -b.vel.x;
+            b.impulse.x = 0.0;
         }
         if b.pos.y < r || b.pos.y > WORLD_H - r {
             b.pos.y = b.pos.y.clamp(r, WORLD_H - r);
             b.vel.y = -b.vel.y;
+            b.impulse.y = 0.0;
         }
 
         b.pattern_t -= dt;
