@@ -26,8 +26,8 @@ opens itself in one of them.
 - **Download:** grab `glowstorm-v*-x86_64-linux.tar.gz` from
   [Releases](https://github.com/Hemantabhusal/catnip/releases), unpack it and
   run `./glowstorm`.
-- **Build from source** (needs [Rust](https://rustup.rs) and the ALSA headers,
-  `libasound2-dev` on Debian/Ubuntu):
+- **Build from source** (needs [Rust](https://rustup.rs); on Linux, also the ALSA
+  headers, `libasound2-dev` on Debian/Ubuntu):
 
   ```sh
   git clone https://github.com/Hemantabhusal/catnip
@@ -35,8 +35,8 @@ opens itself in one of them.
   cargo run --release
   ```
 
-Sound uses ALSA (`alsa-lib` on Arch, `libasound2` on Debian/Ubuntu); without an
-audio device the game runs silently.
+Sound uses CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
+`libasound2` on Debian/Ubuntu); without an audio device the game runs silently.
 
 | Control | Action |
 |---|---|
@@ -104,8 +104,8 @@ crates/
 ## Requirements
 
 - a recent kitty, or Ghostty 1.x
-- Linux (macOS is untested)
-- ALSA for sound; the game runs silently without an audio device
+- Linux or macOS
+- CoreAudio on macOS, ALSA on Linux; the game runs silently without an audio device
 
 ## Resource use
 

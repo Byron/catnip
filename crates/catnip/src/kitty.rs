@@ -5,7 +5,7 @@ use std::{
     ffi::CString,
     fs::File,
     io::{self, Write},
-    os::fd::FromRawFd,
+    os::fd::{AsRawFd, FromRawFd},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -46,21 +46,49 @@ fn write_shm(pixels: &[u8]) -> io::Result<String> {
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
-    let mut file = unsafe { File::from_raw_fd(fd) };
-    file.set_len(pixels.len() as u64)?;
-    file.write_all(pixels)?;
-    Ok(STANDARD.encode(name))
+    let file = unsafe { File::from_raw_fd(fd) };
+    let result = (|| {
+        file.set_len(pixels.len() as u64)?;
+        if !pixels.is_empty() {
+            // macOS shared-memory fds do not support write(); use a shared mapping.
+            // SAFETY: file is sized above; copy exactly that many bytes, then unmap.
+            let mapped = unsafe {
+                libc::mmap(
+                    std::ptr::null_mut(),
+                    pixels.len(),
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    file.as_raw_fd(),
+                    0,
+                )
+            };
+            if mapped == libc::MAP_FAILED {
+                return Err(io::Error::last_os_error());
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(pixels.as_ptr(), mapped.cast(), pixels.len());
+                if libc::munmap(mapped, pixels.len()) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+        }
+        Ok(STANDARD.encode(name))
+    })();
+    if result.is_err() {
+        // SAFETY: c_name still names the object we created above.
+        unsafe { libc::shm_unlink(c_name.as_ptr()) };
+    }
+    result
 }
 
 /// Removes shared-memory objects Kitty never consumed (e.g. after a crash mid-frame).
 pub fn cleanup_shm() {
     let prefix = shm_prefix();
-    if let Ok(entries) = std::fs::read_dir("/dev/shm") {
-        for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(&prefix) {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
+    // macOS does not expose shared-memory objects through /dev/shm.
+    for id in 0..SHM_COUNTER.load(Ordering::Relaxed) {
+        let name = CString::new(format!("/{prefix}{id}")).expect("shm name has no NUL");
+        // SAFETY: name is NUL-terminated and belongs to this process.
+        unsafe { libc::shm_unlink(name.as_ptr()) };
     }
 }
 
@@ -295,6 +323,50 @@ impl Placer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_memory_contains_pixels_and_is_cleaned_up() {
+        for pixels in [&b"RGBA"[..], &b""[..]] {
+            let encoded = write_shm(pixels).unwrap();
+            let name = CString::new(STANDARD.decode(encoded).unwrap()).unwrap();
+            // SAFETY: name is NUL-terminated; the returned fd belongs to file.
+            let fd = unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) };
+            assert!(fd >= 0, "{}", io::Error::last_os_error());
+            let file = unsafe { File::from_raw_fd(fd) };
+            // macOS rounds shared-memory size up to a page.
+            assert!(file.metadata().unwrap().len() >= pixels.len() as u64);
+            if !pixels.is_empty() {
+                // SAFETY: map the object's full size, then unmap after reading.
+                let mapped = unsafe {
+                    libc::mmap(
+                        std::ptr::null_mut(),
+                        pixels.len(),
+                        libc::PROT_READ,
+                        libc::MAP_SHARED,
+                        file.as_raw_fd(),
+                        0,
+                    )
+                };
+                assert_ne!(mapped, libc::MAP_FAILED, "{}", io::Error::last_os_error());
+                unsafe {
+                    assert_eq!(
+                        std::slice::from_raw_parts(mapped.cast::<u8>(), pixels.len()),
+                        pixels
+                    );
+                    assert_eq!(libc::munmap(mapped, pixels.len()), 0);
+                }
+            }
+            cleanup_shm();
+            assert_eq!(
+                unsafe { libc::shm_open(name.as_ptr(), libc::O_RDONLY, 0) },
+                -1
+            );
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ENOENT)
+            );
+        }
+    }
 
     #[test]
     fn placer_crops_offscreen_parts_and_deletes_stale_ids() {
