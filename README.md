@@ -1,5 +1,7 @@
 # Catnip
 
+![Glowstorm, a twin-stick shooter running inside kitty](assets/glowstorm.webp)
+
 A small Rust game engine for the [kitty](https://sw.kovidgoyal.net/kitty/) terminal.
 It also runs in [Ghostty](https://ghostty.org), which implements kitty's protocols.
 
