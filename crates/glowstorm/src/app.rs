@@ -20,6 +20,13 @@ use crate::{
 
 const FRAME: Duration = Duration::from_micros(16_667);
 
+/// Why the frame loop ended.
+pub enum Exit {
+    Quit,
+    /// The terminal doesn't report key releases (kitty keyboard protocol off).
+    NeedsKeyboardProtocol,
+}
+
 pub fn run(
     mut win: term::Window,
     scale: f32,
@@ -27,11 +34,15 @@ pub fn run(
     floor: Image,
     sprites: &Sprites,
     audio: Option<&Audio>,
-) -> io::Result<()> {
+) -> io::Result<Exit> {
     let mut out = io::stdout().lock();
     upload_images(&mut out, &atlas, &floor)?;
     // Fail with a clear message instead of running with invisible sprites.
     kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
+    // Smooth movement needs key releases.
+    if !term::keyboard_protocol_active(Duration::from_millis(800)) {
+        return Ok(Exit::NeedsKeyboardProtocol);
+    }
     let mut renderer = Renderer::new((floor.w, floor.h), atlas.len());
     drop((atlas, floor));
 
@@ -53,7 +64,7 @@ pub fn run(
                 Event::Resize(..) => win = term::window_size().unwrap_or(win),
                 event => {
                     if handle(event, &mut input, &mut game) == Flow::Quit {
-                        return Ok(());
+                        return Ok(Exit::Quit);
                     }
                 }
             }

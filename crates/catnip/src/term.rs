@@ -49,13 +49,87 @@ pub fn window_size() -> io::Result<Window> {
     })
 }
 
-/// kitty, or Ghostty (which implements the kitty graphics and keyboard protocols).
+/// Terminals that implement the kitty graphics and keyboard protocols well
+/// enough for real-time sprites. (WezTerm implements both but mis-draws
+/// images at sub-cell offsets and erased cells over images, so it's out.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Terminal {
+    Kitty,
+    Ghostty,
+}
+
+impl Terminal {
+    pub fn detect() -> Option<Self> {
+        let term = std::env::var("TERM").unwrap_or_default();
+        let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+        if std::env::var_os("KITTY_WINDOW_ID").is_some() || term == "xterm-kitty" {
+            Some(Terminal::Kitty)
+        } else if program == "ghostty" || term == "xterm-ghostty" {
+            Some(Terminal::Ghostty)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn supported_terminal() -> bool {
-    let term = std::env::var("TERM").unwrap_or_default();
-    std::env::var_os("KITTY_WINDOW_ID").is_some()
-        || std::env::var("TERM_PROGRAM").is_ok_and(|p| p == "ghostty")
-        || term == "xterm-kitty"
-        || term == "xterm-ghostty"
+    Terminal::detect().is_some()
+}
+
+/// Whether the kitty keyboard protocol is active (key release events). Asks
+/// for the current flags, then sends a device-attributes query that every
+/// terminal answers: a flags reply before it means yes. Call after `enter`.
+pub fn keyboard_protocol_active(timeout: std::time::Duration) -> bool {
+    let mut out = io::stdout();
+    if out
+        .write_all(b"\x1b[?u\x1b[c")
+        .and_then(|()| out.flush())
+        .is_err()
+    {
+        return false;
+    }
+    let reply = read_input_until(timeout, |bytes| {
+        // The device-attributes reply ends with `c`: ESC [ ? … c
+        String::from_utf8_lossy(bytes).contains('c')
+    });
+    let text = String::from_utf8_lossy(&reply);
+    let flags = text
+        .find("\x1b[?")
+        .and_then(|i| text[i..].find('u').map(|j| (i, j)));
+    let attributes = text.find('c');
+    match (flags, attributes) {
+        (Some((i, j)), Some(c)) => i + j < c,
+        _ => false,
+    }
+}
+
+/// Reads raw input until `done` says the bytes so far are enough, or the
+/// timeout passes. Only for start-up queries, before the event loop runs.
+pub fn read_input_until(timeout: std::time::Duration, done: impl Fn(&[u8]) -> bool) -> Vec<u8> {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut bytes = Vec::new();
+    while !done(&bytes) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let mut poll = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd; read into a stack buffer of its size.
+        let ready = unsafe { libc::poll(&mut poll, 1, left.as_millis().min(1000) as i32) };
+        if ready > 0 {
+            let mut chunk = [0u8; 512];
+            let n =
+                unsafe { libc::read(libc::STDIN_FILENO, chunk.as_mut_ptr().cast(), chunk.len()) };
+            if n > 0 {
+                bytes.extend_from_slice(&chunk[..n as usize]);
+            }
+        }
+    }
+    bytes
 }
 
 pub fn enter() -> io::Result<()> {

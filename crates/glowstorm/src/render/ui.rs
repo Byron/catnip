@@ -13,7 +13,9 @@ impl Renderer {
         scale: f32,
     ) {
         for row in self.text_rows.drain(..) {
-            let _ = write!(out, "\x1b[{row};1H\x1b[2K");
+            // Spaces, not erase-line: WezTerm paints erased cells opaque
+            // over images.
+            let _ = write!(out, "\x1b[{row};1H{:width$}", "", width = win.cols as usize);
         }
         let mut text = Text {
             out,

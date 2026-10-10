@@ -13,13 +13,13 @@ use catnip::{kitty, term};
 use sound::Audio;
 
 fn main() {
-    if !term::supported_terminal() {
-        // Started from another terminal: open ourselves in kitty (or Ghostty).
+    if term::Terminal::detect().is_none() {
+        // Started from another terminal: open ourselves in one that works.
         if std::env::var_os("GLOWSTORM_RELAUNCHED").is_none() && relaunch_in_supported_terminal() {
             println!("Glowstorm opened in a new window.");
             return;
         }
-        eprintln!("Glowstorm needs kitty (https://sw.kovidgoyal.net/kitty/) or Ghostty.");
+        eprintln!("{UNSUPPORTED}");
         std::process::exit(1);
     }
     let win = match term::window_size() {
@@ -36,7 +36,6 @@ fn main() {
     let (atlas, sprites) = art::build_sprites(scale);
     let floor = art::build_floor(scale);
     let build_time = started.elapsed();
-
     // Before stderr goes to the log: a panic must restore the screen and
     // print where the user can see it.
     let default_hook = std::panic::take_hook();
@@ -77,11 +76,27 @@ fn main() {
         term::enter().and_then(|()| app::run(win, scale, atlas, floor, &sprites, audio.as_ref()));
     term::restore();
     kitty::cleanup_shm();
-    if let Err(e) = result {
-        eprintln!("error: {e}");
-        std::process::exit(1);
+    match result {
+        Ok(app::Exit::Quit) => {}
+        Ok(app::Exit::NeedsKeyboardProtocol) => {
+            eprintln!("{NO_KEYBOARD}");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
     }
 }
+
+const UNSUPPORTED: &str = "Glowstorm runs in kitty or Ghostty (it draws with the kitty graphics and
+keyboard protocols). Both are free:
+  kitty    https://sw.kovidgoyal.net/kitty/
+  Ghostty  https://ghostty.org";
+
+const NO_KEYBOARD: &str = "This terminal didn't turn on key-release reporting (the kitty keyboard
+protocol), which Glowstorm needs for smooth movement. Run it in kitty or
+Ghostty.";
 
 fn relaunch_in_supported_terminal() -> bool {
     use std::process::{Command, Stdio};
