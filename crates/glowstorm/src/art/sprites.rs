@@ -8,6 +8,8 @@ pub struct Sprites {
     pub player: Vec<Frame>,
     pub ghost: Vec<Frame>,
     pub bullet: Vec<Frame>,
+    /// Charging muzzle: normal and timing bonus.
+    pub charged: [Vec<Frame>; 2],
     pub chaser: Flashing,
     pub swarm: Flashing,
     pub shooter: Flashing,
@@ -83,6 +85,21 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         bullet_faded.push(atlas.add(img.with_alpha(0.4)));
         bullet.push(atlas.add(img));
     }
+
+    let charged = [(Hue::Cyan, 1.0), (Hue::White, 1.0)].map(|(hue, alpha)| {
+        (0..9)
+            .map(|i| {
+                atlas.add(
+                    neon_sprite(s, 8.0 + 3.0 * i as f32, hue.color(), |l, b, c, r| {
+                        b.fill_circle(c, r, 0.5);
+                        l.stroke_circle(c, r, line(2.5));
+                        l.fill_circle(c, r * 0.35, 1.0);
+                    })
+                    .with_alpha(alpha),
+                )
+            })
+            .collect()
+    });
 
     let chaser_shape = |l: &mut Mask, b: &mut Mask, c: (f32, f32), r: f32, angle: f32| {
         let pts = rotate(&star(4, 0.4), angle, c, r);
@@ -298,6 +315,7 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         player,
         ghost,
         bullet,
+        charged,
         chaser,
         swarm,
         shooter,

@@ -1,6 +1,7 @@
 //! Drawing the arena: every entity is a placement of the sprite atlas.
 
 use super::*;
+use crate::game::CHARGE_BOOST_HEAT;
 
 /// Everything in the arena, back to front; the floor is placed by the caller.
 pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
@@ -107,7 +108,46 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
         draw.sprite(frames[k], b.pos, Z_BULLETS);
     }
 
+    if let Some(gun) = &game.gatling {
+        let frames = &sprites.charged[usize::from(gun.boosted)];
+        let k = (gun.charge * gun.strength() * (frames.len() - 1) as f32).round() as usize;
+        draw.sprite(
+            frames[k],
+            game.player.pos + V2::from_angle(game.player.aim) * 28.0,
+            Z_PLAYER + 1,
+        );
+    }
+
     let p = &game.player;
+    if p.charge > 0.0 && matches!(game.state, State::Playing | State::Paused) {
+        let boosted = p.heat >= CHARGE_BOOST_HEAT;
+        let frames = &sprites.charged[usize::from(boosted)];
+        let k = (p.charge * (frames.len() - 1) as f32).round() as usize;
+        draw.sprite(
+            frames[k.min(frames.len() - 1)],
+            p.pos + V2::from_angle(p.aim) * 28.0,
+            Z_PLAYER + 1,
+        );
+        // Sparks converge on the muzzle as the gun charges.
+        let muzzle = p.pos + V2::from_angle(p.aim) * 28.0;
+        for i in 0..12 {
+            let t = (game.time * 2.0 + i as f32 / 12.0).fract();
+            let at = muzzle
+                + V2::from_angle(i as f32 * TAU / 12.0 + game.time)
+                    * (18.0 + (1.0 - t) * (25.0 + 65.0 * p.charge));
+            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER + 1);
+        }
+        if boosted {
+            draw_world_text(
+                draw,
+                sprites,
+                TextSize::Tiny,
+                Hue::White,
+                "RELEASE!",
+                p.pos + V2 { x: 0.0, y: -48.0 },
+            );
+        }
+    }
     let blink = p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
     if matches!(game.state, State::Playing | State::Paused | State::Upgrade) && !blink {
         let k = art::angle_frame(p.aim, art::PLAYER_ANGLES, TAU);

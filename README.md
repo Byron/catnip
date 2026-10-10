@@ -43,6 +43,7 @@ Sound uses CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
 | WASD | move |
 | mouse | aim |
 | hold left click | fire |
+| hold middle click / E, then release | charge and release a gatling barrage |
 | Space / right click | dash |
 | Esc / P | pause |
 | Q | quit |
@@ -62,6 +63,17 @@ hearts and faster, more aggressive, more numerous enemies, and pay up to 2× the
 score.
 Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
 time they're twice as tough.
+
+Hold middle mouse or E to charge the gatling gun (about 1.8 seconds from cold),
+then release a rapid spread barrage. Keep aiming as it fires. Longer charges
+increase pellet damage, reach, and burst duration (up to 1.6 seconds); the barrage
+starts strong and weakens as it runs out. Spread upgrades add pellets, and
+Piercing and Long Range apply too.
+Release in the final 10% of the heat meter, when **RELEASE!** appears, for 10%
+extra damage, faster pellets, and a faster firing rate. Holding too long forces
+it to fire with 25% less damage and overheats the gun; release before charging
+again. Both weapons share heat. Regular fire and charging wait until the barrage
+finishes; Coolant extends the charging time.
 
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose up to a quarter of their damage at long range, so it pays to get

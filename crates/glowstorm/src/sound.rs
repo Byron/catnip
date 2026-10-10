@@ -5,6 +5,7 @@ use catnip::synth::{Speaker, concat, mix, note, rumble, saw, sine, square, sweep
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Sfx {
     Shoot,
+    Gatling,
     Hit,
     Explode,
     BigExplode,
@@ -28,8 +29,9 @@ pub enum Sfx {
 
 pub const COMBO_NOTES: u8 = 12;
 
-const BASIC: [Sfx; 18] = [
+const BASIC: [Sfx; 19] = [
     Sfx::Shoot,
+    Sfx::Gatling,
     Sfx::Hit,
     Sfx::Explode,
     Sfx::BigExplode,
@@ -86,6 +88,10 @@ fn synth(sfx: Sfx) -> Vec<f32> {
         Sfx::Shoot => mix(
             sweep(0.08, 1400.0, 420.0, 0.07, 1.5, square),
             rumble(0.04, 0.6, 0.2, 0.05, 7),
+        ),
+        Sfx::Gatling => mix(
+            sweep(0.035, 900.0, 250.0, 0.12, 1.2, square),
+            rumble(0.025, 0.8, 0.15, 0.14, 41),
         ),
         Sfx::Hit => rumble(0.05, 0.9, 0.4, 0.18, 11),
         Sfx::Explode => mix(

@@ -54,6 +54,7 @@ pub struct Game {
     pub player: Player,
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
+    pub gatling: Option<Gatling>,
     pub orbs: Vec<Orb>,
     spawns: Vec<Spawn>,
     pub particles: Vec<Particle>,
@@ -134,6 +135,7 @@ impl Game {
             player: Player::new(Difficulty::Medium.hearts()),
             enemies: Vec::new(),
             bullets: Vec::new(),
+            gatling: None,
             orbs: Vec::new(),
             spawns: Vec::new(),
             particles: Vec::new(),
@@ -209,6 +211,8 @@ impl Game {
 
     pub fn pause(&mut self) {
         if self.state == State::Playing {
+            self.player.charge = 0.0;
+            self.player.charge_blocked = true;
             self.state = State::Paused;
         }
     }
@@ -271,7 +275,7 @@ impl Game {
             }
             State::Playing => {
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
-                    self.state = State::Paused;
+                    self.pause();
                     return;
                 }
                 if self.hitstop > 0.0 {
@@ -356,6 +360,7 @@ impl Game {
         self.update_boss(dt);
         if self.state == State::Playing {
             self.update_shields(dt);
+            self.update_gatling(dt);
         }
         self.update_bullets(dt);
         self.shockwaves.retain_mut(|w| {
@@ -365,6 +370,11 @@ impl Game {
         if self.state == State::Playing {
             self.player_collisions();
             self.update_pickups(dt);
+        }
+        if self.state != State::Playing {
+            self.gatling = None;
+            self.player.charge = 0.0;
+            self.player.charge_blocked = true;
         }
         self.chain_t -= dt;
         if self.chain_t <= 0.0 {

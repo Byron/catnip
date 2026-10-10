@@ -44,6 +44,23 @@ pub(super) const MIN_DAMAGE: f32 = 0.75;
 
 pub(super) const SHIELD_DPS: f32 = 7.0;
 
+pub struct Gatling {
+    pub charge: f32,
+    pub boosted: bool,
+    /// Damage per pellet at the beginning of the barrage.
+    pub(super) damage: f32,
+    pub life: f32,
+    pub duration: f32,
+    pub range: f32,
+    pub(super) fire_cd: f32,
+}
+
+impl Gatling {
+    pub fn strength(&self) -> f32 {
+        (self.life / self.duration).clamp(0.0, 1.0)
+    }
+}
+
 /// Damage of a bullet that has flown `traveled` units out of its `range`.
 pub fn bullet_damage(traveled: f32, range: f32) -> f32 {
     let full = FULL_DAMAGE_RANGE * range / BULLET_RANGE;
@@ -52,6 +69,51 @@ pub fn bullet_damage(traveled: f32, range: f32) -> f32 {
 }
 
 impl Game {
+    pub(super) fn update_gatling(&mut self, dt: f32) {
+        let Some(gun) = &mut self.gatling else { return };
+        let active = dt.min(gun.life);
+        let interval = if gun.boosted { 0.025 } else { 0.035 };
+        let aim = self.player.aim;
+        let dir = V2::from_angle(aim);
+        let muzzle = self.player.pos + dir * 22.0;
+        let speed = BULLET_SPEED * if gun.boosted { 1.6 } else { 1.25 };
+        let spread = self.player.upgrades.level(Upgrade::Spread);
+        let pierce = self.player.upgrades.level(Upgrade::Pierce);
+        let falloff = self.player.upgrades.level(Upgrade::Range) == 0;
+        let mut flashes = Vec::new();
+        while gun.fire_cd < active {
+            let strength = (gun.life - gun.fire_cd) / gun.duration;
+            let damage = gun.damage * (0.35 + 0.65 * strength);
+            let aim = aim + self.rng.range(-0.025, 0.025);
+            for i in -(1 + i32::from(spread))..=1 + i32::from(spread) {
+                let d = V2::from_angle(aim + i as f32 * 0.12);
+                let damage = damage * if i.abs() > 1 { 0.35 } else { 1.0 };
+                self.bullets.push(Bullet {
+                    pos: muzzle,
+                    prev: self.player.pos,
+                    vel: d * speed + self.player.vel * 0.25,
+                    traveled: 0.0,
+                    range: gun.range,
+                    damage,
+                    pierce,
+                    last_hit: 0,
+                    falloff,
+                });
+            }
+            self.sfx.push(Sfx::Gatling);
+            flashes.push(dir * 280.0 + self.rng.dir() * 100.0);
+            gun.fire_cd += interval;
+        }
+        gun.fire_cd -= active;
+        gun.life -= active;
+        if gun.life <= 0.0 {
+            self.gatling = None;
+        }
+        for vel in flashes {
+            self.emit(muzzle, vel, 0.08, Hue::Yellow, 1);
+        }
+    }
+
     pub(super) fn update_bullets(&mut self, dt: f32) {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();

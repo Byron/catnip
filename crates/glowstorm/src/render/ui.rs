@@ -78,7 +78,12 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · mouse aim · hold click fire · space / right-click dash",
+                    "WASD move · mouse aim · left-click fire · space / right-click dash",
+                );
+                text.line(
+                    r + 1,
+                    "38;2;200;210;255",
+                    "Hold middle-click / E to charge gatling · release, then sweep your aim",
                 );
                 if self.ghostty {
                     text.line(

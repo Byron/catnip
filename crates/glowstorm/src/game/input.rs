@@ -11,6 +11,7 @@ pub struct Input {
     /// Mouse position in window pixels, once the mouse has moved.
     pub mouse: Option<V2>,
     pub fire: bool,
+    pub charge: bool,
     pub clicked: bool,
     pub dash: bool,
     /// The mouse moved this frame (hover only follows real movement).

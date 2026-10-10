@@ -159,6 +159,8 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                     input.clicked = true;
                 }
                 MouseEventKind::Up(MouseButton::Left) => input.fire = false,
+                MouseEventKind::Down(MouseButton::Middle) => input.charge = true,
+                MouseEventKind::Up(MouseButton::Middle) => input.charge = false,
                 MouseEventKind::Down(MouseButton::Right) => input.dash = true,
                 _ => {}
             }
@@ -166,6 +168,7 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
         Event::FocusLost => {
             input.held.clear();
             input.fire = false;
+            input.charge = false;
             game.on_focus_lost();
         }
         _ => {}
@@ -230,5 +233,67 @@ impl Meter {
             self.window_start = Instant::now();
             (self.frames, self.work, self.bytes) = (0, Duration::ZERO, 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyEvent, MouseEvent};
+
+    #[test]
+    fn charge_tracks_middle_mouse_and_e_and_clears_on_focus_loss() {
+        let mut game = Game::new(7);
+        let mut input = Input::default();
+        let mouse = |kind| {
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 100,
+                row: 100,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        handle(
+            mouse(MouseEventKind::Down(MouseButton::Middle)),
+            &mut input,
+            &mut game,
+        );
+        input.end_frame();
+        assert!(input.charge, "middle mouse stays held between frames");
+        assert!(!input.clicked && !input.fire && !input.dash);
+        handle(
+            mouse(MouseEventKind::Up(MouseButton::Middle)),
+            &mut input,
+            &mut game,
+        );
+        assert!(!input.charge);
+        handle(
+            Event::Key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE)),
+            &mut input,
+            &mut game,
+        );
+        assert!(input.held.contains(&KeyCode::Char('e')));
+        handle(
+            Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char('e'),
+                KeyModifiers::NONE,
+                KeyEventKind::Release,
+            )),
+            &mut input,
+            &mut game,
+        );
+        assert!(!input.held.contains(&KeyCode::Char('e')));
+        handle(
+            mouse(MouseEventKind::Down(MouseButton::Middle)),
+            &mut input,
+            &mut game,
+        );
+        handle(
+            Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+            &mut input,
+            &mut game,
+        );
+        handle(Event::FocusLost, &mut input, &mut game);
+        assert!(!input.charge && input.held.is_empty());
     }
 }

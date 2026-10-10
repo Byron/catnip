@@ -16,9 +16,13 @@ pub struct Player {
     pub max_hp: i32,
     pub dash_charges: u8,
     pub upgrades: Upgrades,
-    /// Weapon heat, 0..1. Firing adds heat; at 1 the gun locks until it cools.
+    /// Weapon heat, 0..1. Firing and charging add heat; at 1 the gun locks.
     pub heat: f32,
     pub overheated: bool,
+    /// Charge accumulated by holding middle mouse or E, 0..1.
+    pub charge: f32,
+    /// Automatic discharge needs a release before another charge can start.
+    pub(super) charge_blocked: bool,
 }
 
 impl Player {
@@ -37,6 +41,8 @@ impl Player {
             ghost_cd: 0.0,
             heat: 0.0,
             overheated: false,
+            charge: 0.0,
+            charge_blocked: false,
             dash_charges: 1,
             upgrades: Upgrades::default(),
         }
@@ -77,6 +83,11 @@ pub(super) const OVERHEAT_COOLING: f32 = HEAT_COOLING;
 /// After overheating, firing resumes once heat drops to this.
 pub(super) const HEAT_RESUME: f32 = 0.65;
 
+/// A cold gun takes 1.8 seconds to force a charged shot out.
+pub(super) const CHARGE_HEAT: f32 = 1.0 / 1.8;
+
+pub const CHARGE_BOOST_HEAT: f32 = 0.9;
+
 pub(super) const DASH_SPEED: f32 = 1350.0;
 
 pub(super) const DASH_TIME: f32 = 0.17;
@@ -105,6 +116,7 @@ impl Game {
             sfx,
             ghosts,
             bullets,
+            gatling,
             rng,
             cam,
             ..
@@ -185,12 +197,72 @@ impl Game {
         } else {
             HEAT_COOLING * cooling_boost
         };
-        p.heat = (p.heat - cooling * dt).max(0.0);
+        let charging = input.charge || input.down(&[KeyCode::Char('e')]);
+        if !charging {
+            p.charge_blocked = false;
+        }
+        // Release uses the heat shown on the last frame, before passive cooling.
+        let release = p.charge > 0.0 && !charging;
+        if !release
+            && (!charging
+                || p.overheated
+                || p.charge_blocked
+                || gatling.is_some()
+                || (p.charge == 0.0 && p.fire_cd > 0.0))
+        {
+            p.heat = (p.heat - cooling * dt).max(0.0);
+        }
         if p.overheated && p.heat <= HEAT_RESUME {
             p.overheated = false;
         }
+        if charging
+            && gatling.is_none()
+            && !p.overheated
+            && !p.charge_blocked
+            && (p.charge > 0.0 || p.fire_cd <= 0.0)
+        {
+            let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
+            let heat = (CHARGE_HEAT * coolant / cooling_boost * dt).min(1.0 - p.heat);
+            p.charge = (p.charge + heat).min(1.0);
+            p.heat = (p.heat + heat).min(1.0);
+        }
+        let forced = p.charge > 0.0 && p.heat >= 1.0;
+        if release || forced {
+            let boosted = !forced && p.heat >= CHARGE_BOOST_HEAT;
+            let damage = (1.0 + 2.0 * p.charge)
+                * if forced {
+                    0.75
+                } else if boosted {
+                    1.1
+                } else {
+                    1.0
+                };
+            let duration = 0.35 + 1.25 * p.charge;
+            *gatling = Some(Gatling {
+                charge: p.charge,
+                boosted,
+                damage,
+                life: duration,
+                duration,
+                fire_cd: 0.0,
+                range: (650.0 + 550.0 * p.charge)
+                    * if p.upgrades.level(Upgrade::Range) >= 2 {
+                        1.25
+                    } else {
+                        1.0
+                    },
+            });
+            p.charge = 0.0;
+            p.fire_cd = 0.25;
+            if forced {
+                p.overheated = true;
+                p.charge_blocked = true;
+                sfx.push(Sfx::Overheat);
+            }
+        }
         let firing = input.fire;
-        if firing && p.fire_cd <= 0.0 && !p.overheated {
+        if firing && gatling.is_none() && !charging && !release && p.fire_cd <= 0.0 && !p.overheated
+        {
             let rapid = p.rapid_t > 0.0;
             let interval = if rapid { 0.055 } else { 0.11 };
             p.fire_cd = (p.fire_cd + interval).max(0.0);

@@ -104,6 +104,228 @@ fn holding_fire_heats_up_gradually_then_overheats() {
 }
 
 #[test]
+fn charged_gatling_grows_and_rewards_release_before_overheating() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for (seconds, multiplier, boosted) in [(0.5, 1.0, false), (1.7, 1.1, true), (2.0, 0.75, false)]
+    {
+        let mut game = Game::new(7);
+        let held = Input {
+            charge: true,
+            fire: true,
+            ..Input::default()
+        };
+        for _ in 0..(seconds * 60.0) as usize {
+            game.update_player(1.0 / 60.0, &held, &view);
+        }
+        if seconds < 1.8 {
+            assert!(game.gatling.is_none(), "release is needed to fire");
+            assert!((game.player.charge - seconds / 1.8).abs() < 1e-5);
+            game.update_player(1.0 / 60.0, &Input::default(), &view);
+        }
+        assert!(
+            game.bullets.is_empty(),
+            "regular fire must wait while charging"
+        );
+        let gatling = game.gatling.as_ref().unwrap();
+        assert!((gatling.damage - (1.0 + 2.0 * gatling.charge) * multiplier).abs() < 1e-4);
+        assert_eq!(gatling.boosted, boosted);
+        assert!((gatling.duration - (0.35 + 1.25 * gatling.charge)).abs() < 1e-5);
+        assert!((gatling.range - (650.0 + 550.0 * gatling.charge)).abs() < 1e-4);
+        assert_eq!(game.player.charge, 0.0);
+        assert_eq!(game.player.overheated, seconds > 1.8);
+        game.update_player(0.1, &held, &view);
+        assert_eq!(game.player.charge, 0.0, "cannot charge during the barrage");
+        assert!(game.bullets.is_empty());
+        game.update_gatling(2.0);
+        assert!(game.gatling.is_none());
+        if seconds > 1.8 {
+            for _ in 0..120 {
+                game.update_player(1.0 / 60.0, &held, &view);
+            }
+            assert!(!game.player.overheated);
+            assert!(
+                game.gatling.is_none(),
+                "holding after autofire cannot fire again"
+            );
+            game.update_player(1.0 / 60.0, &Input::default(), &view);
+            game.update_player(1.0 / 60.0, &held, &view);
+            assert!(game.player.charge > 0.0, "release rearms charging");
+        }
+    }
+}
+
+#[test]
+fn charged_gatling_shares_heat_and_respects_coolant_and_overheat_lock() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let held = Input {
+        held: [KeyCode::Char('e')].into(),
+        ..Input::default()
+    };
+    let mut game = Game::new(7);
+    game.player.heat = 0.95;
+    game.update_player(0.1, &held, &view);
+    assert!(game.gatling.is_some(), "a hot gun autofires sooner");
+    assert!(
+        (game.gatling.as_ref().unwrap().charge - 0.05).abs() < 1e-5,
+        "old heat is not free charge"
+    );
+
+    let mut game = Game::new(7);
+    game.player.upgrades.add(Upgrade::Coolant);
+    for _ in 0..120 {
+        game.update_player(1.0 / 60.0, &held, &view);
+    }
+    assert!(game.gatling.is_none());
+    assert!((game.player.heat - 2.0 / 1.8 * 0.75).abs() < 1e-5);
+
+    game.player.charge = 0.0;
+    game.player.heat = 1.0;
+    game.player.overheated = true;
+    game.update_player(0.1, &held, &view);
+    assert_eq!(game.player.charge, 0.0);
+    assert!(game.player.heat < 1.0 && game.player.overheated);
+}
+
+#[test]
+fn pausing_cancels_charge_without_firing_on_resume() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let held = Input {
+        charge: true,
+        ..Input::default()
+    };
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.update_player(0.5, &held, &view);
+    let heat = game.player.heat;
+    game.on_focus_lost();
+    assert_eq!(game.state, State::Paused);
+    assert_eq!(game.player.charge, 0.0);
+    assert_eq!(game.player.heat, heat);
+    game.state = State::Playing;
+    game.update_player(1.0 / 60.0, &held, &view);
+    assert_eq!(game.player.charge, 0.0, "release first after resuming");
+    game.update_player(1.0 / 60.0, &Input::default(), &view);
+    assert!(game.gatling.is_none());
+    game.update_player(1.0 / 60.0, &held, &view);
+    assert!(game.player.charge > 0.0);
+}
+
+#[test]
+fn gatling_fires_spread_volleys_follows_aim_and_fades() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(13);
+    game.player.pos = v2(300.0, 500.0);
+    game.player.aim = 0.0;
+    game.player.charge = 0.9;
+    game.player.heat = 0.95;
+    game.update_player(1.0 / 60.0, &Input::default(), &view);
+    game.update_gatling(0.01);
+    assert_eq!(
+        game.bullets.len(),
+        3,
+        "each volley is a three-pellet spread"
+    );
+    assert!(game.bullets[0].vel.y < 0.0 && game.bullets[2].vel.y > 0.0);
+    let first = game.bullets[1].damage;
+    let origin = game.bullets[1].pos;
+    game.player.pos += v2(0.0, 100.0);
+    game.player.aim = TAU / 4.0;
+    game.update_gatling(0.025);
+    assert_eq!(game.bullets.len(), 6);
+    assert!(game.bullets[4].vel.y > 0.0 && game.bullets[4].pos.y > origin.y);
+    game.update_gatling(0.5);
+    assert!(
+        game.bullets.last().unwrap().damage < first,
+        "later volleys soften"
+    );
+    game.update_gatling(2.0);
+    assert!(game.gatling.is_none());
+    let count = game.bullets.len();
+    game.update_gatling(0.5);
+    assert_eq!(game.bullets.len(), count, "no shots after the burst ends");
+}
+
+#[test]
+fn gatling_barrage_count_and_power_are_independent_of_frame_rate() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut counts = Vec::new();
+    let mut totals = Vec::new();
+    for dt in [1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0, 2.0] {
+        let mut game = Game::new(17);
+        game.player.charge = 0.9;
+        game.player.heat = 0.95;
+        game.update_player(1.0 / 60.0, &Input::default(), &view);
+        while game.gatling.is_some() {
+            game.update_gatling(dt);
+        }
+        counts.push(game.bullets.len());
+        totals.push(game.bullets.iter().map(|b| b.damage).sum::<f32>());
+    }
+    assert!(counts.iter().all(|&n| n == counts[0] && n > 150));
+    assert!(totals.iter().all(|n| (n - totals[0]).abs() < 0.01));
+}
+
+#[test]
+fn gatling_uses_spread_pierce_and_range_upgrades() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(19);
+    game.player.upgrades.add(Upgrade::Spread);
+    game.player.upgrades.add(Upgrade::Pierce);
+    game.player.upgrades.add(Upgrade::Range);
+    game.player.upgrades.add(Upgrade::Range);
+    game.player.charge = 0.5;
+    game.update_player(1.0 / 60.0, &Input::default(), &view);
+    game.update_gatling(0.01);
+    assert_eq!(game.bullets.len(), 5);
+    assert!(
+        game.bullets
+            .iter()
+            .all(|b| b.pierce == 1 && !b.falloff && b.range > 1000.0)
+    );
+    assert!(game.bullets[0].damage < game.bullets[1].damage);
+}
+
+#[test]
+fn gatling_freezes_while_paused_and_ends_on_death() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(25);
+    game.state = State::Playing;
+    game.player.charge = 0.5;
+    game.update_player(1.0 / 60.0, &Input::default(), &view);
+    let life = game.gatling.as_ref().unwrap().life;
+    game.pause();
+    game.update(0.5, &Input::default(), &view);
+    assert_eq!(game.gatling.as_ref().unwrap().life, life);
+    game.state = State::Playing;
+    game.update(0.1, &Input::default(), &view);
+    assert!(game.gatling.as_ref().unwrap().life < life);
+    game.state = State::Dying;
+    game.update(0.1, &Input::default(), &view);
+    assert!(game.gatling.is_none(), "death stops the barrage");
+}
+
+#[test]
 fn enemies_double_while_the_player_grows_a_fifth_by_wave_eleven() {
     let mut game = Game::new(9);
     game.wave = 11;
@@ -364,6 +586,20 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
     };
     // Title, play, boss entrance and fight, pause, cards, death, game over.
     draw(&game);
+    for charge in [0.1, 0.5, 0.95] {
+        game.player.charge = charge;
+        game.player.heat = charge;
+        draw(&game);
+        game.update_player(1.0 / 60.0, &Input::default(), &view);
+        draw(&game);
+        game.update_gatling(0.3);
+        draw(&game);
+        if let Some(gatling) = &mut game.gatling {
+            gatling.life = gatling.duration * 0.2;
+        }
+        draw(&game);
+        game.update_gatling(2.0);
+    }
     for _ in 0..(60 * 8) {
         game.update(
             1.0 / 60.0,
