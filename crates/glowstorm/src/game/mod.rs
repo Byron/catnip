@@ -102,7 +102,7 @@ pub struct Game {
 }
 
 /// Developer switches read from the environment, for testing later waves:
-/// `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` ignores damage.
+/// `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` prevents death but keeps hit reactions.
 #[derive(Clone, Copy)]
 struct DevFlags {
     first_wave: u32,

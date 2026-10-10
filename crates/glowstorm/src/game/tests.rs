@@ -19,6 +19,57 @@ fn damage_is_full_up_close_and_falls_off_with_distance() {
 }
 
 #[test]
+fn god_mode_keeps_hit_reactions_and_stops_at_one_heart() {
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.dev.god = true;
+    game.player.hp = 2;
+    let source = game.player.pos - v2(20.0, 0.0);
+    game.add_enemy(Kind::Chaser, source, V2::default(), false);
+
+    for _ in 0..3 {
+        game.player.invuln = 0.0;
+        game.player.vel = V2::default();
+        game.chain = 12;
+        game.particles.clear();
+        game.sfx.clear();
+        game.player_collisions();
+
+        assert_eq!(game.state, State::Playing);
+        assert_eq!(game.player.hp, 1);
+        assert_eq!(game.player.vel, v2(700.0, 0.0));
+        assert_eq!(game.player.invuln, 1.3);
+        assert_eq!(game.chain, 0);
+        assert_eq!(game.shake, 16.0);
+        assert_eq!(game.hitstop, 0.09);
+        assert_eq!(game.sfx, vec![Sfx::Hurt]);
+        assert_eq!(game.particles.len(), 22);
+        assert_eq!(game.enemies[0].vel, v2(-600.0, 0.0));
+
+        game.player_collisions();
+        assert_eq!(game.particles.len(), 22, "hit grace prevents another hit");
+        assert_eq!(game.sfx, vec![Sfx::Hurt]);
+    }
+}
+
+#[test]
+fn hits_still_kill_without_god_mode() {
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.dev.god = false;
+    game.player.hp = 1;
+    let source = game.player.pos - v2(20.0, 0.0);
+    game.add_enemy(Kind::Chaser, source, V2::default(), false);
+
+    game.player_collisions();
+
+    assert_eq!(game.player.hp, 0);
+    assert_eq!(game.state, State::Dying);
+    assert!(game.sfx.contains(&Sfx::Hurt));
+    assert!(game.sfx.contains(&Sfx::BigExplode));
+}
+
+#[test]
 fn holding_fire_heats_up_gradually_then_overheats() {
     let mut game = Game::new(7);
     game.start();
@@ -216,7 +267,7 @@ fn beating_the_boss_pays_out_and_moves_to_the_next_wave() {
 fn tanks_lob_volleys_from_afar_and_enrage_when_left_alone() {
     let mut game = Game::new(17);
     game.start();
-    game.dev.god = true;
+    game.player.invuln = 10.0;
     game.budget = 0;
     game.banner = 0.0;
     game.enemies.clear();

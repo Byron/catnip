@@ -225,7 +225,7 @@ impl Game {
 
     pub(super) fn player_collisions(&mut self) {
         let p = &self.player;
-        if p.invuln > 0.0 || p.dashing() || self.dev.god {
+        if p.invuln > 0.0 || p.dashing() {
             return;
         }
         let at = p.pos;
@@ -263,6 +263,9 @@ impl Game {
 
         let p = &mut self.player;
         p.hp -= 1;
+        if self.dev.god {
+            p.hp = p.hp.max(1);
+        }
         p.invuln = 1.3;
         p.vel = (p.pos - source).norm() * 700.0;
         let pos = p.pos;
