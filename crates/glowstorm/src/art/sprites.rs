@@ -110,20 +110,20 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
                 let w = ((dir.0.abs() * 16.0 + 18.0) * s).ceil() as u32;
                 let h = ((dir.1.abs() * 16.0 + 18.0) * s).ceil() as u32;
                 let mut lines = Mask::new(w, h);
+                let mut core = Mask::new(w, h);
                 let body = Mask::new(w, h);
                 let center = (w as f32 * 0.5, h as f32 * 0.5);
-                lines.line(
-                    (center.0 - dir.0 * 8.0 * s, center.1 - dir.1 * 8.0 * s),
-                    (center.0 + dir.0 * 8.0 * s, center.1 + dir.1 * 8.0 * s),
-                    width * 2.0 * s,
-                );
-                atlas.add(neon(
-                    &lines,
-                    &body,
-                    Hue::Cyan.color(),
-                    (4.0 * s) as usize,
-                    1.6,
-                ))
+                let a = (center.0 - dir.0 * 8.0 * s, center.1 - dir.1 * 8.0 * s);
+                let b = (center.0 + dir.0 * 8.0 * s, center.1 + dir.1 * 8.0 * s);
+                lines.line(a, b, width * 2.0 * s);
+                core.line(a, b, (width * 0.65 * s).max(0.6));
+                let mut img = neon(&lines, &body, Hue::Orange.color(), (4.0 * s) as usize, 2.0);
+                for (px, coverage) in img.rgba.as_chunks_mut::<4>().0.iter_mut().zip(&core.v) {
+                    for (channel, hot) in px[..3].iter_mut().zip([255.0, 250.0, 230.0]) {
+                        *channel = (*channel as f32 * (1.0 - coverage) + hot * coverage) as u8;
+                    }
+                }
+                atlas.add(img)
             })
             .collect()
     });

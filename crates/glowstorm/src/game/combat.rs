@@ -132,16 +132,18 @@ impl Game {
         let at = from + (at - from) * flight;
         let mut shots = Vec::new();
         spin.fire_cd -= active;
-        if spin.fire_cd <= 0.0 && active > 0.0 {
+        let glow = spin.fire_cd <= 0.0 && active > 0.0;
+        if glow {
             self.sfx.push(Sfx::Gatling);
             spin.fire_cd = 0.05;
         }
         let steps = (active * 960.0).ceil().max(1.0) as usize;
         let step_dt = active / steps as f32;
         let angular_speed = spin.angular_speed();
-        // An arena diagonal reaches every target; laser reach never fades with charge.
-        let beam_radius = self.arena_size.len();
+        let lo = v2(WALL, WALL);
+        let hi = self.arena_size - lo;
         let beam_width = spin.width();
+        let laser_angle = spin.laser_angle();
         let laser_damage = spin.damage * (0.35 + 0.65 * spin.strength()) * 45.0;
         let beams: Vec<_> = (0..steps)
             .map(|step| {
@@ -149,8 +151,10 @@ impl Game {
                 let b = (step + 1) as f32 / steps as f32;
                 let angle = spin.angle - active * (1.0 - (a + b) * 0.5) * angular_speed;
                 let angle = (angle / (TAU / 128.0)).round() * (TAU / 128.0);
+                let center = from + (at - from) * ((a + b) * 0.5);
                 let ends: [V2; 8] = std::array::from_fn(|i| {
-                    V2::from_angle(angle + i as f32 * TAU / 8.0) * beam_radius
+                    let dir = V2::from_angle(angle + i as f32 * TAU / 8.0);
+                    dir * ray_exit(center, dir, lo, hi)
                 });
                 (a, b, ends)
             })
@@ -284,6 +288,24 @@ impl Game {
             let vel = self.rng.dir() * 180.0;
             self.emit(pos, vel, 0.2, Hue::Cyan, 1);
             self.sfx.push(Sfx::Hit);
+        }
+        if glow {
+            for i in 0..8 {
+                let dir = V2::from_angle(laser_angle + i as f32 * TAU / 8.0);
+                let reach = ray_exit(at, dir, lo, hi);
+                let wall = at + dir * reach;
+                self.emit(wall, V2::default(), 0.45, Hue::Orange, 2);
+                for hue in [Hue::White, Hue::Yellow] {
+                    let vel = -dir * 100.0 + self.rng.dir() * 70.0;
+                    self.emit(wall, vel, 0.2, hue, 1);
+                }
+                // Sparse heat wisps share the particle cap instead of drawing extra full beams.
+                let wisps = ((reach / 80.0) as usize).min(10);
+                for j in 1..=wisps {
+                    let pos = at + dir * (reach * j as f32 / (wisps + 1) as f32);
+                    self.emit(pos, V2::default(), 0.16, Hue::Orange, 0);
+                }
+            }
         }
         if landed {
             self.player.spin = None;

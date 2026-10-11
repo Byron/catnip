@@ -383,6 +383,87 @@ fn star_beams_destroy_crossing_bullets_at_range_but_leave_gaps_and_near_misses()
 }
 
 #[test]
+fn laser_rays_stop_at_the_first_wall_in_any_arena() {
+    for size in [v2(WORLD_W, WORLD_H), v2(5000.0, 2800.0)] {
+        let lo = v2(WALL, WALL);
+        let hi = size - lo;
+        for pos in [size * 0.5, lo + v2(14.0, 14.0), hi - v2(14.0, 14.0)] {
+            for i in 0..128 {
+                let dir = V2::from_angle(i as f32 * TAU / 128.0);
+                let end = pos + dir * ray_exit(pos, dir, lo, hi);
+                assert!(end.x >= lo.x - 0.01 && end.x <= hi.x + 0.01);
+                assert!(end.y >= lo.y - 0.01 && end.y <= hi.y + 0.01);
+                let wall_distance = (end.x - lo.x)
+                    .min(hi.x - end.x)
+                    .min(end.y - lo.y)
+                    .min(hi.y - end.y);
+                assert!(wall_distance.abs() < 0.01);
+            }
+        }
+    }
+}
+
+#[test]
+fn lasers_hit_targets_before_walls_and_leave_targets_beyond_them() {
+    for fading in [false, true] {
+        let mut game = Game::new(7);
+        let at = game.player.pos;
+        let mut spin = Spin::new(1.0, false, 1.0, at, 0.0);
+        spin.active = 0.001;
+        if fading {
+            spin.life = 0.001;
+        }
+        game.player.spin = Some(spin);
+        for x in [WORLD_W - WALL - 10.0, WORLD_W + 60.0] {
+            game.add_orb(v2(x, at.y), V2::default());
+            game.add_enemy(Kind::Tank, v2(x, at.y), V2::default(), true);
+        }
+        let hp = game.enemies[1].hp;
+        game.update_spin(0.001);
+        assert_eq!(game.orbs.len(), 1);
+        assert!(game.orbs[0].pos.x > WORLD_W);
+        assert!(game.enemies[0].hp < hp);
+        assert_eq!(game.enemies[1].hp, hp);
+    }
+}
+
+#[test]
+fn laser_wall_sparks_and_heat_wisps_fade_and_obey_the_particle_cap() {
+    let mut game = Game::new(7);
+    game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+    game.player.spin.as_mut().unwrap().active = 0.01;
+    game.update_spin(0.01);
+    let wall_glows: Vec<_> = game.particles.iter().filter(|p| p.size == 2).collect();
+    assert_eq!(wall_glows.len(), 8);
+    for p in wall_glows {
+        let edge = p
+            .pos
+            .x
+            .min(p.pos.y)
+            .min(WORLD_W - p.pos.x)
+            .min(WORLD_H - p.pos.y);
+        assert!((edge - WALL).abs() < 0.01);
+        assert_eq!(p.hue, Hue::Orange);
+    }
+    assert!(
+        game.particles
+            .iter()
+            .any(|p| p.size == 0 && p.hue == Hue::Orange)
+    );
+    game.player.spin = None;
+    game.update_effects(0.2);
+    assert_eq!(game.particles.len(), 8, "only wall afterglow remains");
+    game.update_effects(0.3);
+    assert!(game.particles.is_empty());
+    game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+    game.player.spin.as_mut().unwrap().active = 0.1;
+    for _ in 0..10 {
+        game.update_spin(0.1);
+    }
+    assert_eq!(game.particles.len(), MAX_PARTICLES);
+}
+
+#[test]
 fn star_laser_fades_and_damage_stays_similar_at_different_frame_rates() {
     let mut totals = Vec::new();
     let view = View {

@@ -91,9 +91,10 @@ Holding can charge it even while evasion is recharging.
 It shares the gatling's heat rules: more charge means more damage and
 duration (up to 1.6 seconds); release in the final 10% of heat for 10% extra
 damage and a faster spin. Overheating forces a discharge with 25% less power
-and requires release to rearm. Coolant extends charging time. The lasers extend
-across the entire screen with no range limit, becoming thinner as their power
-fades. They rotate at half a turn per second (0.8 with the timing bonus) and
+and requires release to rearm. Coolant extends charging time. The white-hot lasers
+extend to the arena walls, throwing sparks and leaving a fading orange heat glow
+along their path and at the wall. They become thinner as their power fades.
+They rotate at half a turn per second (0.8 with the timing bonus) and
 destroy enemy bullets they touch;
 the close shield reflects bullets back as friendly shots. Ship contact deals
 heavy damage and pushes enemies away. You keep normal movement control throughout

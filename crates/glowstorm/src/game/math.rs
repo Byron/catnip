@@ -83,6 +83,18 @@ impl Neg for V2 {
     }
 }
 
+/// Distance along a ray from inside a rectangle to its first boundary.
+pub fn ray_exit(pos: V2, dir: V2, lo: V2, hi: V2) -> f32 {
+    let mut distance = f32::INFINITY;
+    for (pos, dir, lo, hi) in [(pos.x, dir.x, lo.x, hi.x), (pos.y, dir.y, lo.y, hi.y)] {
+        if dir.abs() > 1e-6 {
+            let edge = if dir > 0.0 { hi } else { lo };
+            distance = distance.min(((edge - pos) / dir).max(0.0));
+        }
+    }
+    distance
+}
+
 /// First contact with a circle along a→b, as a fraction of the frame.
 pub(super) fn segment_hit(p: V2, a: V2, b: V2, radius: f32) -> Option<f32> {
     let offset = a - p;

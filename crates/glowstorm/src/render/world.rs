@@ -1,7 +1,7 @@
 //! Drawing the arena: every entity is a placement of the sprite atlas.
 
 use super::*;
-use crate::game::{CHARGE_BOOST_HEAT, SPIN_RADIUS};
+use crate::game::{CHARGE_BOOST_HEAT, SPIN_RADIUS, ray_exit, v2};
 
 /// Everything in the arena, back to front; the floor is placed by the caller.
 pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
@@ -124,7 +124,7 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             let at = p.pos
                 + V2::from_angle(game.time * 4.0 + i as f32 * TAU / 12.0)
                     * (24.0 + p.charge * 30.0);
-            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER);
+            draw.sprite(sprites.spark[Hue::Orange.index()][1], at, Z_PLAYER);
         }
     }
     if p.charge > 0.0 && matches!(game.state, State::Playing | State::Paused) {
@@ -179,7 +179,9 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             let frame = sprites.laser[width][art::angle_frame(angle, 128, TAU)];
             let lo = draw.cam * (1.0 / draw.scale) - p.pos;
             let hi = lo + draw.view_size;
-            let (mut enter, mut exit) = (0.0f32, f32::INFINITY);
+            let margin = v2(art::WALL, art::WALL);
+            let wall = ray_exit(p.pos, dir, margin, game.arena_size - margin);
+            let (mut enter, mut exit) = (0.0f32, wall - 8.0);
             for (dir, lo, hi) in [(dir.x, lo.x, hi.x), (dir.y, lo.y, hi.y)] {
                 if dir.abs() < 1e-6 {
                     if lo > 0.0 || hi < 0.0 {
@@ -197,13 +199,13 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
                 0
             };
             for j in 0..n {
-                let distance = enter + j as f32 * 12.0;
+                let distance = (enter + j as f32 * 12.0).min(exit);
                 draw.sprite(frame, p.pos + dir * distance, Z_PLAYER - 1);
             }
         }
         for i in 0..20 {
             let at = p.pos + V2::from_angle(spin.angle + i as f32 * TAU / 20.0) * SPIN_RADIUS;
-            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER + 1);
+            draw.sprite(sprites.spark[Hue::Yellow.index()][1], at, Z_PLAYER + 1);
         }
     }
     if matches!(game.state, State::Playing | State::Paused | State::Upgrade) {
