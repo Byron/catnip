@@ -8,6 +8,12 @@ pub enum Sfx {
     Sniper,
     Plasma,
     Bfg,
+    Gravity,
+    Ricochet,
+    Lightning,
+    Blade,
+    Mine,
+    Flame,
     Gatling,
     Hit,
     Explode,
@@ -32,11 +38,17 @@ pub enum Sfx {
 
 pub const COMBO_NOTES: u8 = 12;
 
-const BASIC: [Sfx; 22] = [
+const BASIC: [Sfx; 28] = [
     Sfx::Shoot,
     Sfx::Sniper,
     Sfx::Plasma,
     Sfx::Bfg,
+    Sfx::Gravity,
+    Sfx::Ricochet,
+    Sfx::Lightning,
+    Sfx::Blade,
+    Sfx::Mine,
+    Sfx::Flame,
     Sfx::Gatling,
     Sfx::Hit,
     Sfx::Explode,
@@ -110,6 +122,21 @@ fn synth(sfx: Sfx) -> Vec<f32> {
             ),
             rumble(0.8, 0.4, 0.04, 0.4, 47),
         ),
+        Sfx::Gravity => mix(
+            sweep(0.22, 90.0, 260.0, 0.17, 1.2, sine),
+            sweep(0.18, 180.0, 70.0, 0.12, 1.0, triangle),
+        ),
+        Sfx::Ricochet => sweep(0.10, 2100.0, 750.0, 0.13, 1.6, triangle),
+        Sfx::Lightning => mix(
+            rumble(0.09, 0.95, 0.6, 0.18, 51),
+            sweep(0.08, 1500.0, 300.0, 0.06, 1.1, saw),
+        ),
+        Sfx::Blade => mix(
+            sweep(0.22, 500.0, 150.0, 0.12, 1.2, saw),
+            sweep(0.16, 1600.0, 420.0, 0.06, 1.4, triangle),
+        ),
+        Sfx::Mine => sweep(0.12, 240.0, 90.0, 0.15, 1.8, square),
+        Sfx::Flame => rumble(0.12, 0.25, 0.05, 0.18, 53),
         Sfx::Gatling => mix(
             sweep(0.035, 900.0, 250.0, 0.12, 1.2, square),
             rumble(0.025, 0.8, 0.15, 0.14, 41),

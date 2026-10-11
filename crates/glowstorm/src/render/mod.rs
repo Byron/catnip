@@ -16,6 +16,7 @@ use crate::{
     game::{Difficulty, Game, Kind, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2, card_span},
 };
 
+mod arsenal;
 mod ui;
 mod world;
 

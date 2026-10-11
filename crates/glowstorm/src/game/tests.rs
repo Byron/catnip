@@ -2,6 +2,207 @@
 
 use super::*;
 
+const EXTRA_WEAPONS: [(char, Weapon); 6] = [
+    ('5', Weapon::Gravity),
+    ('6', Weapon::Ricochet),
+    ('7', Weapon::Lightning),
+    ('8', Weapon::Blade),
+    ('9', Weapon::Mines),
+    ('0', Weapon::Flame),
+];
+
+fn extra_attack_active(game: &Game, weapon: Weapon) -> bool {
+    match weapon {
+        Weapon::Gravity => !game.gravity_fields.is_empty(),
+        Weapon::Ricochet => !game.ricochets.is_empty(),
+        Weapon::Lightning => !game.lightning_arcs.is_empty() || game.storm.is_some(),
+        Weapon::Blade => !game.blades.is_empty(),
+        Weapon::Mines => !game.mines.is_empty(),
+        Weapon::Flame => !game.particles.is_empty() || !game.fuel_globs.is_empty(),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn extra_weapon_keys_fire_distinct_attacks_and_preserve_shared_heat_and_cooldown() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for (key, weapon) in EXTRA_WEAPONS {
+        let mut game = Game::new(7);
+        let select = Input {
+            pressed: vec![KeyCode::Char(key)],
+            ..Input::default()
+        };
+        game.update(0.0, &select, &view);
+        assert_eq!(game.difficulty, Difficulty::Medium);
+        assert_eq!(game.player.weapon, Weapon::Default);
+        game.state = State::Playing;
+        game.update(0.0, &select, &view);
+        assert_eq!(game.player.weapon, weapon);
+        let fire = Input {
+            fire: true,
+            ..Input::default()
+        };
+        game.player.overheated = true;
+        game.player.heat = 1.0;
+        game.update_player(0.0, &fire, &view);
+        assert!(!extra_attack_active(&game, weapon));
+        game.player.overheated = false;
+        game.player.heat = 0.0;
+        game.update_player(0.0, &fire, &view);
+        assert!(extra_attack_active(&game, weapon), "{weapon:?}");
+        assert!(game.player.heat > 0.0 && game.player.fire_cd > 0.0);
+        assert!(
+            game.bullets.is_empty(),
+            "extra weapons do not also fire the default gun"
+        );
+        let heat = game.player.heat;
+        game.player.weapon = Weapon::Default;
+        game.update_player(0.0, &fire, &view);
+        assert!(
+            game.bullets.is_empty(),
+            "switching preserves the firing cooldown"
+        );
+        assert_eq!(game.player.heat, heat);
+    }
+}
+
+#[test]
+fn every_extra_weapon_has_a_charge_release_and_perfect_cooling_support() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for (_, weapon) in EXTRA_WEAPONS {
+        for (charge, perfect_cooling) in [(0.2, false), (0.95, false), (1.0, false), (1.0, true)] {
+            let mut game = Game::new(7);
+            game.state = State::Playing;
+            game.player.weapon = weapon;
+            game.dev.perfect_cooling = perfect_cooling;
+            game.player.charge = charge;
+            game.player.heat = if perfect_cooling { 0.0 } else { charge };
+            game.update_player(0.0, &Input::default(), &view);
+            assert!(
+                extra_attack_active(&game, weapon),
+                "{weapon:?} charged {charge}"
+            );
+            assert!(game.gatling.is_none() && game.bfgs.is_empty());
+            assert_eq!(game.player.charge, 0.0);
+            assert_eq!(game.player.overheated, charge == 1.0 && !perfect_cooling);
+            assert_eq!(
+                game.player.charge_blocked,
+                charge == 1.0 && !perfect_cooling
+            );
+            assert!(game.player.spin.is_none());
+        }
+    }
+}
+
+#[test]
+fn extra_weapons_pause_restart_and_expire_under_continuous_perfect_cooling_fire() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for (_, weapon) in EXTRA_WEAPONS {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.dev.perfect_cooling = true;
+        game.player.weapon = weapon;
+        game.player.pos = v2(600.0, 700.0);
+        game.player.aim = 0.0;
+        let fire = Input {
+            fire: true,
+            ..Input::default()
+        };
+        for frame in 0..600 {
+            game.update_player(1.0 / 60.0, &fire, &view);
+            if frame % 30 == 29 {
+                game.player.charge = 0.95;
+                game.update_player(0.0, &Input::default(), &view);
+            }
+            game.update_fields(1.0 / 60.0);
+            game.update_trickshots(1.0 / 60.0);
+            game.update_incendiary(1.0 / 60.0);
+            game.update_bullets(1.0 / 60.0);
+            game.update_effects(1.0 / 60.0);
+            game.sfx.clear();
+            assert_eq!(game.player.heat, 0.0);
+            assert!(!game.player.overheated);
+            assert!(game.particles.len() <= MAX_PARTICLES);
+            assert!(game.ricochets.len() <= 64 && game.blades.len() <= 8);
+            assert!(
+                game.mines.len() <= 48
+                    && game.fire_patches.len() <= 24
+                    && game.fuel_globs.len() <= 24
+            );
+            assert!(game.gravity_fields.len() < 10);
+        }
+        let counts = (
+            game.gravity_fields.len(),
+            game.ricochets.len(),
+            game.blades.len(),
+            game.mines.len(),
+            game.fuel_globs.len(),
+            game.fire_patches.len(),
+        );
+        game.pause();
+        game.update(0.5, &Input::default(), &view);
+        assert_eq!(
+            counts,
+            (
+                game.gravity_fields.len(),
+                game.ricochets.len(),
+                game.blades.len(),
+                game.mines.len(),
+                game.fuel_globs.len(),
+                game.fire_patches.len()
+            )
+        );
+        for _ in 0..1800 {
+            game.update_fields(1.0 / 60.0);
+            game.update_trickshots(1.0 / 60.0);
+            game.update_incendiary(1.0 / 60.0);
+            game.update_bullets(1.0 / 60.0);
+            game.update_effects(1.0 / 60.0);
+        }
+        assert!(
+            game.gravity_fields.is_empty()
+                && game.thrown_ships.is_empty()
+                && game.lightning_arcs.is_empty()
+                && game.storm.is_none()
+        );
+        assert!(
+            game.ricochets.is_empty()
+                && game.blades.is_empty()
+                && game.mines.is_empty()
+                && game.fuel_globs.is_empty()
+                && game.fire_patches.is_empty()
+                && game.burns.is_empty()
+        );
+        game.player.charge = 0.5;
+        game.update_player(0.0, &Input::default(), &view);
+        game.start();
+        assert_eq!(game.player.weapon, Weapon::Default);
+        assert!(
+            game.gravity_fields.is_empty()
+                && game.thrown_ships.is_empty()
+                && game.lightning_arcs.is_empty()
+                && game.storm.is_none()
+        );
+        assert!(
+            game.ricochets.is_empty()
+                && game.blades.is_empty()
+                && game.mines.is_empty()
+                && game.fuel_globs.is_empty()
+                && game.fire_patches.is_empty()
+                && game.burns.is_empty()
+        );
+    }
+}
+
 #[test]
 fn perfect_cooling_allows_continuous_fire_and_forward_or_reverse_boost() {
     let view = View {
@@ -43,6 +244,7 @@ fn perfect_cooling_allows_continuous_fire_and_forward_or_reverse_boost() {
                 Weapon::Sniper => 10,
                 Weapon::Rocket => 8,
                 Weapon::Plasma => 200,
+                _ => unreachable!(),
             };
             assert!(shots >= minimum, "{weapon:?}: only {shots} shots");
         }
@@ -106,6 +308,7 @@ fn perfect_cooling_charges_every_weapon_and_spin_without_forcing_discharge() {
                         assert!(game.bullets.iter().all(|b| b.damage == 30.0));
                     }
                     Weapon::Plasma => assert_eq!(game.bfgs[0].damage, 480.0),
+                    _ => unreachable!(),
                 }
             }
         }
@@ -3213,6 +3416,36 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         renderer.frame(&mut out, game, &sprites, 0.6, win, &stats);
         assert!(!out.is_empty());
     };
+    for (_, weapon) in EXTRA_WEAPONS {
+        game.player.weapon = weapon;
+        game.player.fire_cd = 0.0;
+        game.player.heat = 0.0;
+        game.update_player(
+            0.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        draw(&game);
+        for charge in [0.1, 0.5, 0.95] {
+            game.player.charge = charge;
+            game.player.heat = charge;
+            game.update_fields(0.0);
+            draw(&game);
+            game.update_player(0.0, &Input::default(), &view);
+            for _ in 0..5 {
+                game.update_fields(0.1);
+                game.update_trickshots(0.1);
+                game.update_incendiary(0.1);
+                draw(&game);
+            }
+        }
+    }
+    game.player.weapon = Weapon::Default;
+    game.player.fire_cd = 0.0;
+    game.player.heat = 0.0;
     // Title, play, boss entrance and fight, pause, cards, death, game over.
     draw(&game);
     for thrust in [1.0, -1.0] {

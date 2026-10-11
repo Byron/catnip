@@ -18,12 +18,15 @@ mod combat;
 mod difficulty;
 mod effects;
 mod enemies;
+mod fields;
+mod incendiary;
 mod input;
 mod math;
 mod pickups;
 mod player;
 #[cfg(test)]
 mod tests;
+mod trickshots;
 mod upgrades;
 mod waves;
 
@@ -33,10 +36,13 @@ pub use combat::*;
 pub use difficulty::*;
 pub use effects::*;
 pub use enemies::*;
+pub use fields::*;
+pub use incendiary::*;
 pub use input::*;
 pub use math::*;
 pub use pickups::*;
 pub use player::*;
+pub use trickshots::*;
 pub use upgrades::*;
 pub use waves::*;
 
@@ -58,6 +64,16 @@ pub struct Game {
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
     pub bfgs: Vec<Bfg>,
+    pub gravity_fields: Vec<GravityField>,
+    pub thrown_ships: Vec<ThrownShip>,
+    pub lightning_arcs: Vec<LightningArc>,
+    pub storm: Option<LightningStorm>,
+    pub ricochets: Vec<Ricochet>,
+    pub blades: Vec<Blade>,
+    pub mines: Vec<StickyMine>,
+    pub fuel_globs: Vec<FuelGlob>,
+    pub fire_patches: Vec<FirePatch>,
+    pub burns: Vec<Burn>,
     pub gatling: Option<Gatling>,
     pub orbs: Vec<Orb>,
     spawns: Vec<Spawn>,
@@ -143,6 +159,16 @@ impl Game {
             enemies: Vec::new(),
             bullets: Vec::new(),
             bfgs: Vec::new(),
+            gravity_fields: Vec::new(),
+            thrown_ships: Vec::new(),
+            lightning_arcs: Vec::new(),
+            storm: None,
+            ricochets: Vec::new(),
+            blades: Vec::new(),
+            mines: Vec::new(),
+            fuel_globs: Vec::new(),
+            fire_patches: Vec::new(),
+            burns: Vec::new(),
             gatling: None,
             orbs: Vec::new(),
             spawns: Vec::new(),
@@ -257,6 +283,7 @@ impl Game {
             self.player.charge_blocked = true;
             self.player.roll_hold = None;
             self.player.charge_spin = false;
+            self.gravity_fields.retain(|field| !field.charging);
             self.state = State::Paused;
         }
     }
@@ -330,6 +357,18 @@ impl Game {
                     self.player.weapon = Weapon::Rocket;
                 } else if input.hit(&[KeyCode::Char('4')]) {
                     self.player.weapon = Weapon::Plasma;
+                } else if input.hit(&[KeyCode::Char('5')]) {
+                    self.player.weapon = Weapon::Gravity;
+                } else if input.hit(&[KeyCode::Char('6')]) {
+                    self.player.weapon = Weapon::Ricochet;
+                } else if input.hit(&[KeyCode::Char('7')]) {
+                    self.player.weapon = Weapon::Lightning;
+                } else if input.hit(&[KeyCode::Char('8')]) {
+                    self.player.weapon = Weapon::Blade;
+                } else if input.hit(&[KeyCode::Char('9')]) {
+                    self.player.weapon = Weapon::Mines;
+                } else if input.hit(&[KeyCode::Char('0')]) {
+                    self.player.weapon = Weapon::Flame;
                 }
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
                     self.pause();
@@ -431,6 +470,9 @@ impl Game {
             self.update_shields(dt);
             self.update_gatling(dt);
         }
+        self.update_fields(dt);
+        self.update_trickshots(dt);
+        self.update_incendiary(dt);
         self.update_bfgs(dt);
         self.update_bullets(dt);
         self.shockwaves.retain_mut(|w| {

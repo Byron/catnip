@@ -106,6 +106,11 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
 
     for b in &game.bullets {
+        if b.weapon == Weapon::Gravity {
+            draw.sprite(sprites.spark[Hue::Violet.index()][2], b.pos, Z_BULLETS);
+            draw.sprite(sprites.spark[Hue::White.index()][0], b.pos, Z_BULLETS + 1);
+            continue;
+        }
         if b.weapon == Weapon::Plasma {
             draw.sprite(sprites.plasma[usize::from(b.faded())], b.pos, Z_BULLETS);
             draw.sprite(sprites.spark[Hue::White.index()][1], b.pos, Z_BULLETS + 1);
@@ -153,6 +158,8 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             );
         }
     }
+
+    super::arsenal::draw_arsenal(draw, game, sprites);
 
     if let Some(gun) = &game.gatling {
         let frames = &sprites.charged[usize::from(gun.boosted)];
@@ -218,7 +225,7 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
                 game.time,
                 Z_PLAYER + 1,
             );
-        } else {
+        } else if !super::arsenal::draw_charge(draw, game, sprites, muzzle) {
             let frames = &sprites.charged[usize::from(boosted)];
             let k = (p.charge * (frames.len() - 1) as f32).round() as usize;
             draw.sprite(frames[k.min(frames.len() - 1)], muzzle, Z_PLAYER + 1);
@@ -229,7 +236,11 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             let at = muzzle
                 + V2::from_angle(i as f32 * TAU / 12.0 + game.time)
                     * (18.0 + (1.0 - t) * (25.0 + 65.0 * p.charge));
-            let hue = if bfg { Hue::Green } else { Hue::Cyan };
+            let hue = if bfg {
+                Hue::Green
+            } else {
+                super::arsenal::charge_hue(p.weapon)
+            };
             draw.sprite(sprites.spark[hue.index()][1], at, Z_PLAYER + 1);
         }
         if boosted {

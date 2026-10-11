@@ -14,6 +14,10 @@ pub struct Sprites {
     pub plasma: [Frame; 2],
     /// Green plasma spheres, from a fresh charge to full BFG power.
     pub bfg: Vec<Frame>,
+    pub ricochet: Vec<Frame>,
+    pub blades: Vec<Vec<Frame>>,
+    pub mine: Frame,
+    pub fuel: Vec<Frame>,
     /// Charging muzzle: normal and timing bonus.
     pub charged: [Vec<Frame>; 2],
     pub laser: [Vec<Frame>; 5],
@@ -153,6 +157,62 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
                     l.fill_circle(c, r * 0.45, 1.0);
                     let corona = rotate(&star(7, 0.65), 0.0, c, r * 0.88);
                     l.stroke_polygon(&corona, line(2.0));
+                },
+            ))
+        })
+        .collect();
+
+    let ricochet = (0..6)
+        .map(|i| {
+            atlas.add(neon_sprite(
+                s,
+                7.0 + 5.0 * i as f32,
+                Hue::Yellow.color(),
+                |l, b, c, r| {
+                    let pts = rotate(&star(4, 0.55), 0.0, c, r);
+                    b.fill_polygon(&pts, 0.8);
+                    l.stroke_polygon(&pts, line(2.0));
+                    l.fill_circle(c, r * 0.25, 1.0);
+                },
+            ))
+        })
+        .collect();
+    let blades = (0..9)
+        .map(|size| {
+            (0..16)
+                .map(|i| {
+                    atlas.add(neon_sprite(
+                        s,
+                        22.0 + size as f32 * 5.0,
+                        Hue::Cyan.color(),
+                        |l, b, c, r| {
+                            let teeth = rotate(&star(10, 0.62), i as f32 * TAU / 16.0, c, r);
+                            b.fill_polygon(&teeth, 0.45);
+                            l.stroke_polygon(&teeth, line(2.5));
+                            l.stroke_circle(c, r * 0.4, line(2.0));
+                        },
+                    ))
+                })
+                .collect()
+        })
+        .collect();
+    let mine = atlas.add(neon_sprite(s, 7.0, Hue::Orange.color(), |l, b, c, r| {
+        let pts = rotate(&star(6, 0.7), 0.0, c, r);
+        b.fill_polygon(&pts, 0.8);
+        l.stroke_polygon(&pts, line(2.0));
+        l.fill_circle(c, r * 0.35, 1.0);
+    }));
+    let fuel = (0..8)
+        .map(|i| {
+            atlas.add(neon_sprite(
+                s,
+                10.0 + i as f32 * 5.0,
+                Hue::Orange.color(),
+                |l, b, c, r| {
+                    b.fill_circle(c, r, 0.8);
+                    let pts = rotate(&star(5, 0.65), 0.0, c, r);
+                    l.stroke_polygon(&pts, line(2.5));
+                    l.fill_circle(c, r * 0.45, 1.0);
                 },
             ))
         })
@@ -417,6 +477,10 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         rocket,
         plasma,
         bfg,
+        ricochet,
+        blades,
+        mine,
+        fuel,
         charged,
         laser,
         chaser,

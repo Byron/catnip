@@ -78,22 +78,37 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · Shift thrust · mouse aim · left fire · 1/2/3/4 gun/sniper/rocket/plasma",
+                    "WASD move · Shift thrust · mouse aim · left fire · 1–0 select weapon",
                 );
                 text.line(
                     r + 1,
                     "38;2;200;210;255",
                     "Tap right / Space evade · hold for star-laser · middle / E charge weapon · release to fire",
                 );
-                if self.ghostty {
+                let help_rows = if win.rows >= 36 {
                     text.line(
                         r + 2,
+                        "38;2;200;210;255",
+                        "1 gun · 2 sniper · 3 rocket · 4 plasma · 5 gravity",
+                    );
+                    text.line(
+                        r + 3,
+                        "38;2;200;210;255",
+                        "6 ricochet · 7 lightning · 8 blade · 9 mines · 0 flame",
+                    );
+                    5
+                } else {
+                    3
+                };
+                if self.ghostty {
+                    text.line(
+                        r + help_rows - 1,
                         "38;2;255;225;77",
                         "Ghostty: use Space if right-click interferes with firing",
                     );
                 }
                 // Difficulty menu: the selected one is yellow.
-                let mut r = r + 3;
+                let mut r = r + help_rows;
                 for d in Difficulty::ALL {
                     let hue = if d == game.difficulty {
                         Hue::Yellow

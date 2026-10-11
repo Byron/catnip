@@ -47,7 +47,9 @@ synthesis, audio initialization, and playback when comparing frame rates.
 | Shift + WASD | heat-powered thrust: stronger forward, weaker reverse |
 | mouse | aim |
 | hold left click | fire |
-| 1 / 2 / 3 / 4 | select default gun / sniper / rocket blaster / plasma gun |
+| 1 / 2 / 3 / 4 | default gun / sniper / rocket blaster / plasma gun |
+| 5 / 6 / 7 | gravity gun / ricochet gun / chain lightning |
+| 8 / 9 / 0 | returning blade / sticky mines / flamethrower |
 | hold middle click / E, then release | charge and release the selected weapon |
 | tap right click / Space / R | barrel roll |
 | hold right click / Space / R, then release | charge a star-laser spin |
@@ -113,6 +115,33 @@ mouse again to detonate all flying BFG balls immediately. Each ball erupts
 in a wide green blast that damages and throws back nearby enemies. The blast
 lights up each target with green plasma, without hurting your ship. More charge
 means a bigger ball and blast; the usual heat timing bonus and overheat penalty apply.
+
+The remaining number keys offer six more weapons. All use left click for normal
+fire and middle mouse / E for charging, with the same shared heat, release bonus,
+overheat penalty, and perfect-cooling support:
+
+- **5 GRAVITY:** a violet field gathers nearby ships and hostile bullets, then
+  hurls them forward. Thrown ships smash into other enemies; captured bullets
+  become friendly ammunition. Charging gathers a wider cluster for a stronger throw.
+- **6 RICOCHET:** gold rounds bank off walls, gaining 30% damage with each bounce.
+  Charging makes a larger, stronger round with more bounces. Each new bank lets
+  it hit the same ship again.
+- **7 LIGHTNING:** arcs jump through nearby enemies with decreasing damage.
+  Charging releases a sustained storm that branches through connected groups,
+  stunning enemies and clearing bullets along the arcs. Keep aiming during the storm.
+- **8 BLADE:** a spinning saw cuts through enemies and returns to your current
+  position. Move to steer its return path through more targets; it can hit each
+  ship once going out and once coming back. Charging makes it larger, slower,
+  and more powerful.
+- **9 MINES:** explosives stick to ships and arena walls. Charging sets your
+  planted mines off in sequence, with stronger and wider blasts at higher charge.
+  If none are planted, it launches a cluster with timed fuses instead.
+- **0 FLAME:** a short cone coats ships in burning fuel. Charging throws a fuel
+  glob that ignites nearby enemies and leaves a burning patch on the floor.
+  More charge gives a larger blast and a longer-lasting fire.
+
+These six weapons do not damage the player. Mines and other lingering effects
+have finite lifetimes and limits, including with perfect cooling enabled.
 
 Hold Shift while moving along your aim direction to engage the rear rocket,
 giving about twice the forward speed. Moving backward engages two smaller front

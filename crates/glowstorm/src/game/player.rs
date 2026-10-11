@@ -9,6 +9,12 @@ pub enum Weapon {
     Sniper,
     Rocket,
     Plasma,
+    Gravity,
+    Ricochet,
+    Lightning,
+    Blade,
+    Mines,
+    Flame,
 }
 
 impl Weapon {
@@ -18,7 +24,25 @@ impl Weapon {
             Self::Sniper => "2 SNIPER",
             Self::Rocket => "3 ROCKET",
             Self::Plasma => "4 PLASMA",
+            Self::Gravity => "5 GRAVITY",
+            Self::Ricochet => "6 RICOCHET",
+            Self::Lightning => "7 LIGHTNING",
+            Self::Blade => "8 BLADE",
+            Self::Mines => "9 MINES",
+            Self::Flame => "0 FLAME",
         }
+    }
+
+    fn special(self) -> bool {
+        matches!(
+            self,
+            Self::Gravity
+                | Self::Ricochet
+                | Self::Lightning
+                | Self::Blade
+                | Self::Mines
+                | Self::Flame
+        )
     }
 }
 
@@ -198,6 +222,7 @@ impl Game {
         }
         let power = self.power();
         let mut flashes = Vec::new();
+        let mut special_shots = Vec::new();
         // Half of the damage edge also goes into gun cooling.
         let cooling_boost = 1.0 + (self.power() - 1.0) / 2.0;
         let dash_cooldown = self.dash_cooldown();
@@ -404,6 +429,13 @@ impl Game {
                 p.roll_hold = None;
                 p.charge_spin = false;
                 sfx.push(Sfx::Dash);
+            } else if p.weapon.special() {
+                special_shots.push((
+                    p.weapon,
+                    Some(p.charge),
+                    damage / (1.0 + 2.0 * p.charge) * power,
+                    boosted,
+                ));
             } else if p.weapon == Weapon::Plasma {
                 let dir = V2::from_angle(p.aim);
                 let multiplier = damage / (1.0 + 2.0 * p.charge);
@@ -499,37 +531,32 @@ impl Game {
             } else {
                 0.0
             };
-            let interval = if plasma {
-                0.025
-            } else if rocket {
-                0.65
-            } else if sniper {
-                0.5
-            } else {
-                0.11
-            } * if rapid { 0.5 } else { 1.0 };
+            let (interval, heat) = match p.weapon {
+                Weapon::Default => (0.11, HEAT_PER_SHOT),
+                Weapon::Sniper => (0.5, HEAT_PER_SHOT * 3.0),
+                Weapon::Rocket => (0.65, HEAT_PER_SHOT * 4.0),
+                Weapon::Plasma => (0.025, HEAT_PER_SHOT * 0.36),
+                Weapon::Gravity => (0.3, 0.09),
+                Weapon::Ricochet => (0.19, 0.085),
+                Weapon::Lightning => (0.085, 0.04),
+                Weapon::Blade => (0.5, 0.18),
+                Weapon::Mines => (0.32, 0.15),
+                Weapon::Flame => (0.05, 0.025),
+            };
+            let interval = interval * if rapid { 0.5 } else { 1.0 };
             p.fire_cd += interval;
             // Rapid fire shoots twice as often for the same heat per second.
             let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
-            p.heat += if perfect_cooling { 0.0 } else { coolant }
-                * if rapid {
-                    HEAT_PER_SHOT / 2.0
-                } else {
-                    HEAT_PER_SHOT
-                }
-                * if plasma {
-                    0.36
-                } else if rocket {
-                    4.0
-                } else if sniper {
-                    3.0
-                } else {
-                    1.0
-                };
+            p.heat +=
+                if perfect_cooling { 0.0 } else { coolant } * heat * if rapid { 0.5 } else { 1.0 };
             if p.heat >= 1.0 {
                 p.heat = 1.0;
                 p.overheated = true;
                 sfx.push(Sfx::Overheat);
+            }
+            if p.weapon.special() {
+                special_shots.push((p.weapon, None, power, false));
+                continue;
             }
             let spread = if sniper {
                 0.004
@@ -624,6 +651,17 @@ impl Game {
             if !plasma {
                 p.fire_cd = p.fire_cd.max(0.0);
                 break;
+            }
+        }
+        for (weapon, charge, multiplier, boosted) in special_shots {
+            match weapon {
+                Weapon::Gravity => self.fire_gravity(charge, multiplier, boosted),
+                Weapon::Ricochet => self.fire_ricochet(charge, multiplier, boosted),
+                Weapon::Lightning => self.fire_lightning(charge, multiplier, boosted),
+                Weapon::Blade => self.fire_blade(charge, multiplier, boosted),
+                Weapon::Mines => self.fire_mines(charge, multiplier, boosted),
+                Weapon::Flame => self.fire_flame(charge, multiplier, boosted),
+                _ => unreachable!(),
             }
         }
         for (muzzle, dir, vel) in flashes {
