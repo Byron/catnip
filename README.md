@@ -65,7 +65,7 @@ score.
 Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
 time they're twice as tough.
 
-Hold middle mouse or E to charge the gatling gun (about 1.8 seconds from cold),
+Hold middle mouse or E to charge the gatling gun (about 0.6 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges
 increase pellet damage, reach, and burst duration (up to 1.6 seconds); the barrage
 starts strong and weakens as it runs out. Each volley sprays six pellets;
@@ -84,6 +84,7 @@ and boss shots, consuming your bullet too.
 Right click, Space or R starts an immediate forward barrel roll, spending a dash
 charge. Release within 0.18 seconds for evasion; keep holding to charge the
 offensive version, then release to fire a rotating eight-spoke star laser.
+Holding can charge it even while evasion is recharging.
 It shares the gatling's heat rules: more charge means more damage and
 duration (up to 1.6 seconds); release in the final 10% of heat for 10% extra
 damage and a faster spin. Overheating forces a discharge with 25% less power

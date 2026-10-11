@@ -45,7 +45,7 @@ fn taps_roll_forward_and_holding_charges_a_forward_star_laser() {
             },
             ..Input::default()
         };
-        for _ in 0..80 {
+        for _ in 0..40 {
             game.update_player(0.01, &held, &view);
         }
         assert!(game.player.spin.is_none());
@@ -61,6 +61,44 @@ fn taps_roll_forward_and_holding_charges_a_forward_star_laser() {
             "offensive move follows evasion direction"
         );
         assert!(game.gatling.is_none());
+    }
+}
+
+#[test]
+fn holding_after_evasion_charges_even_during_dash_cooldown() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for key in [None, Some(KeyCode::Char(' ')), Some(KeyCode::Char('r'))] {
+        for wait in [0.01, 0.25] {
+            let mut game = Game::new(7);
+            let press = Input {
+                dash: key.is_none(),
+                spin: key.is_none(),
+                held: key.into_iter().collect(),
+                pressed: key.into_iter().collect(),
+                ..Input::default()
+            };
+            let held = Input {
+                spin: key.is_none(),
+                held: key.into_iter().collect(),
+                ..Input::default()
+            };
+            game.update_player(0.01, &press, &view);
+            game.update_player(wait, &Input::default(), &view);
+            assert_eq!(game.player.dash_charges, 0);
+            game.update_player(0.01, &press, &view);
+            for _ in 0..40 {
+                game.update_player(0.01, &held, &view);
+            }
+            assert!(game.player.dash_cd > 0.0);
+            assert_eq!(game.player.dash_charges, 0);
+            assert!(game.player.charge_spin && game.player.charge > 0.0);
+            game.update_player(0.01, &Input::default(), &view);
+            assert!(game.player.spin.is_some());
+            assert!(game.gatling.is_none());
+        }
     }
 }
 
@@ -85,7 +123,7 @@ fn star_charge_rewards_timing_penalizes_overheat_and_requires_release_to_rearm()
             },
             &view,
         );
-        for _ in 0..if forced { 210 } else { 185 } {
+        for _ in 0..if forced { 85 } else { 73 } {
             game.update_player(0.01, &held, &view);
             if game.player.spin.is_some() {
                 break;
@@ -138,7 +176,7 @@ fn star_charge_honors_shared_heat_coolant_and_overheat_lock() {
         if coolant {
             game.player.upgrades.add(Upgrade::Coolant);
         }
-        for _ in 0..190 {
+        for _ in 0..63 {
             game.update_player(0.01, &held, &view);
         }
         assert_eq!(game.player.spin.is_some(), !coolant);
@@ -864,7 +902,7 @@ fn charged_gatling_grows_and_rewards_release_before_overheating() {
         scale: 1.0,
         size: v2(1600.0, 900.0),
     };
-    for (seconds, multiplier, boosted) in [(0.5, 1.0, false), (1.7, 1.1, true), (2.0, 0.75, false)]
+    for (seconds, multiplier, boosted) in [(0.2, 1.0, false), (0.55, 1.1, true), (0.7, 0.75, false)]
     {
         let mut game = Game::new(7);
         let held = Input {
@@ -875,9 +913,9 @@ fn charged_gatling_grows_and_rewards_release_before_overheating() {
         for _ in 0..(seconds * 60.0) as usize {
             game.update_player(1.0 / 60.0, &held, &view);
         }
-        if seconds < 1.8 {
+        if seconds < 0.6 {
             assert!(game.gatling.is_none(), "release is needed to fire");
-            assert!((game.player.charge - seconds / 1.8).abs() < 1e-5);
+            assert!((game.player.charge - seconds / 0.6).abs() < 1e-5);
             game.update_player(1.0 / 60.0, &Input::default(), &view);
         }
         assert!(
@@ -890,13 +928,13 @@ fn charged_gatling_grows_and_rewards_release_before_overheating() {
         assert!((gatling.duration - (0.35 + 1.25 * gatling.charge)).abs() < 1e-5);
         assert!((gatling.range - (650.0 + 550.0 * gatling.charge)).abs() < 1e-4);
         assert_eq!(game.player.charge, 0.0);
-        assert_eq!(game.player.overheated, seconds > 1.8);
+        assert_eq!(game.player.overheated, seconds > 0.6);
         game.update_player(0.1, &held, &view);
         assert_eq!(game.player.charge, 0.0, "cannot charge during the barrage");
         assert!(game.bullets.is_empty());
         game.update_gatling(2.0);
         assert!(game.gatling.is_none());
-        if seconds > 1.8 {
+        if seconds > 0.6 {
             for _ in 0..120 {
                 game.update_player(1.0 / 60.0, &held, &view);
             }
@@ -933,11 +971,11 @@ fn charged_gatling_shares_heat_and_respects_coolant_and_overheat_lock() {
 
     let mut game = Game::new(7);
     game.player.upgrades.add(Upgrade::Coolant);
-    for _ in 0..120 {
+    for _ in 0..40 {
         game.update_player(1.0 / 60.0, &held, &view);
     }
     assert!(game.gatling.is_none());
-    assert!((game.player.heat - 2.0 / 1.8 * 0.75).abs() < 1e-5);
+    assert!((game.player.heat - (2.0 / 3.0) / 0.6 * 0.75).abs() < 1e-5);
 
     game.player.charge = 0.0;
     game.player.heat = 1.0;

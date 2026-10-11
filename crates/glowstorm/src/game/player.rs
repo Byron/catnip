@@ -139,8 +139,8 @@ pub(super) const OVERHEAT_COOLING: f32 = HEAT_COOLING;
 /// After overheating, firing resumes once heat drops to this.
 pub(super) const HEAT_RESUME: f32 = 0.65;
 
-/// A cold gun takes 1.8 seconds to force a charged shot out.
-pub(super) const CHARGE_HEAT: f32 = 1.0 / 1.8;
+/// A cold gun takes 0.6 seconds to force a charged shot out.
+pub(super) const CHARGE_HEAT: f32 = 1.0 / 0.6;
 
 pub const CHARGE_BOOST_HEAT: f32 = 0.9;
 
@@ -208,6 +208,17 @@ impl Game {
         p.rapid_t -= dt;
         let wants_dash = input.dash || input.hit(&[KeyCode::Char(' '), KeyCode::Char('r')]);
         let roll_held = input.spin || input.down(&[KeyCode::Char(' '), KeyCode::Char('r')]);
+        // Offensive charging does not spend a dash charge or wait for evasion cooldown.
+        if wants_dash
+            && roll_held
+            && p.spin.is_none()
+            && !p.charge_spin
+            && p.charge == 0.0
+            && !p.charge_blocked
+            && gatling.is_none()
+        {
+            p.roll_hold = Some(0.0);
+        }
         if wants_dash && p.dash_charges > 0 && !p.dashing() && !p.charge_spin {
             p.dash_charges -= 1;
             if p.dash_cd <= 0.0 {
@@ -220,9 +231,6 @@ impl Game {
             };
             p.vel = dir * DASH_SPEED;
             p.dash_t = DASH_TIME;
-            if roll_held && p.charge == 0.0 && !p.charge_blocked && gatling.is_none() {
-                p.roll_hold = Some(0.0);
-            }
             sfx.push(Sfx::Dash);
         }
         if let Some(held) = &mut p.roll_hold {
