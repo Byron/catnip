@@ -33,7 +33,9 @@ pub struct Player {
     pub dash_charges: u8,
     pub upgrades: Upgrades,
     pub weapon: Weapon,
-    /// Weapon heat, 0..1. Firing and charging add heat; at 1 the gun locks.
+    /// Signed thrust along the aim direction: rear rocket (+) or front jets (-).
+    pub thrust: f32,
+    /// Shared heat, 0..1. Firing, charging and thrust add heat; at 1 the gun locks.
     pub heat: f32,
     pub overheated: bool,
     /// Charge accumulated for the gatling or star laser, 0..1.
@@ -115,6 +117,7 @@ impl Player {
             dash_charges: 1,
             upgrades: Upgrades::default(),
             weapon: Weapon::Default,
+            thrust: 0.0,
         }
     }
 
@@ -276,6 +279,13 @@ impl Game {
                 });
             }
         }
+        let forward = V2::from_angle(p.aim);
+        let axial = movement.dot(forward);
+        p.thrust = if input.boost && !p.dashing() && !p.overheated && axial.abs() > 0.1 {
+            axial
+        } else {
+            0.0
+        };
         if p.dash_t > 0.0 {
             p.dash_t -= dt;
             p.ghost_cd -= dt;
@@ -292,6 +302,7 @@ impl Game {
             }
         } else {
             p.vel += movement * ACCEL * dt;
+            p.vel += forward * ACCEL * p.thrust * if p.thrust > 0.0 { 1.2 } else { 0.5 } * dt;
             p.vel = p.vel * (-DRAG * dt).exp();
         }
         p.pos += p.vel * dt;
@@ -306,18 +317,6 @@ impl Game {
         }
 
         p.fire_cd -= dt;
-        if p.spin.is_some() {
-            let cooling = if p.overheated {
-                OVERHEAT_COOLING
-            } else {
-                HEAT_COOLING * cooling_boost
-            };
-            p.heat = (p.heat - cooling * dt).max(0.0);
-            if p.heat <= HEAT_RESUME {
-                p.overheated = false;
-            }
-            return;
-        }
         let cooling = if p.overheated {
             OVERHEAT_COOLING
         } else {
@@ -336,17 +335,28 @@ impl Game {
         if p.charge_spin && !charging && p.charge == 0.0 {
             p.charge_spin = false;
         }
-        if !release
-            && (!charging
-                || p.overheated
-                || p.charge_blocked
-                || gatling.is_some()
-                || (p.charge == 0.0 && p.fire_cd > 0.0))
+        if p.spin.is_some()
+            || (!release
+                && (!charging
+                    || p.overheated
+                    || p.charge_blocked
+                    || gatling.is_some()
+                    || (p.charge == 0.0 && p.fire_cd > 0.0)))
         {
             p.heat = (p.heat - cooling * dt).max(0.0);
         }
         if p.overheated && p.heat <= HEAT_RESUME {
             p.overheated = false;
+        }
+        let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
+        let thrust_heat = p.thrust.abs() * if p.thrust > 0.0 { 0.8 } else { 0.6 };
+        p.heat = (p.heat + thrust_heat * coolant * dt).min(1.0);
+        if p.heat >= 1.0 && p.charge == 0.0 && !p.overheated {
+            p.overheated = true;
+            sfx.push(Sfx::Overheat);
+        }
+        if p.spin.is_some() {
+            return;
         }
         if charging
             && gatling.is_none()
@@ -354,7 +364,6 @@ impl Game {
             && !p.charge_blocked
             && (p.charge > 0.0 || p.fire_cd <= 0.0)
         {
-            let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
             let heat = (CHARGE_HEAT * coolant / cooling_boost * dt).min(1.0 - p.heat);
             p.charge = (p.charge + heat).min(1.0);
             p.heat = (p.heat + heat).min(1.0);
@@ -380,18 +389,22 @@ impl Game {
                 sfx.push(Sfx::Dash);
             } else {
                 *gatling = Some(Gatling {
+                    weapon: p.weapon,
                     charge: p.charge,
                     boosted,
-                    damage,
+                    damage: damage * if p.weapon == Weapon::Sniper { 2.0 } else { 1.0 },
                     life: duration,
                     duration,
                     fire_cd: 0.0,
-                    range: (650.0 + 550.0 * p.charge)
-                        * if p.upgrades.level(Upgrade::Range) >= 2 {
-                            1.25
-                        } else {
-                            1.0
-                        },
+                    range: (if p.weapon == Weapon::Sniper {
+                        1200.0 + 600.0 * p.charge
+                    } else {
+                        650.0 + 550.0 * p.charge
+                    }) * if p.upgrades.level(Upgrade::Range) >= 2 {
+                        1.25
+                    } else {
+                        1.0
+                    },
                 });
             }
             p.charge = 0.0;

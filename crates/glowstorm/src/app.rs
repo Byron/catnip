@@ -8,7 +8,7 @@ use std::{
 
 use catnip::{gfx::Image, kitty, term};
 use crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, ModifierKeyCode, MouseButton, MouseEventKind,
 };
 
 use crate::{
@@ -145,6 +145,12 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                     input.pressed.push(code);
                 }
             }
+            let shift_keys = [
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyCode::Modifier(ModifierKeyCode::RightShift),
+            ];
+            input.boost = shift_keys.iter().any(|code| input.held.contains(code))
+                || (!shift_keys.contains(&code) && key.modifiers.contains(KeyModifiers::SHIFT));
         }
         Event::Mouse(mouse) => {
             if matches!(mouse.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) {
@@ -177,6 +183,7 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
             input.fire = false;
             input.charge = false;
             input.spin = false;
+            input.boost = false;
             game.on_focus_lost();
         }
         _ => {}
@@ -248,6 +255,69 @@ impl Meter {
 mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, MouseEvent};
+
+    #[test]
+    fn shift_thrust_tracks_both_keys_modifiers_release_and_focus_loss() {
+        let mut game = Game::new(7);
+        let mut input = Input::default();
+        let key =
+            |code, kind, modifiers| Event::Key(KeyEvent::new_with_kind(code, modifiers, kind));
+        for side in [ModifierKeyCode::LeftShift, ModifierKeyCode::RightShift] {
+            handle(
+                key(
+                    KeyCode::Modifier(side),
+                    KeyEventKind::Press,
+                    KeyModifiers::SHIFT,
+                ),
+                &mut input,
+                &mut game,
+            );
+            input.end_frame();
+            assert!(input.boost);
+        }
+        handle(
+            key(KeyCode::Char('W'), KeyEventKind::Press, KeyModifiers::SHIFT),
+            &mut input,
+            &mut game,
+        );
+        assert!(input.held.contains(&KeyCode::Char('w')));
+        handle(
+            key(
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyEventKind::Release,
+                KeyModifiers::SHIFT,
+            ),
+            &mut input,
+            &mut game,
+        );
+        assert!(input.boost, "right shift is still held");
+        handle(
+            key(
+                KeyCode::Modifier(ModifierKeyCode::RightShift),
+                KeyEventKind::Release,
+                KeyModifiers::NONE,
+            ),
+            &mut input,
+            &mut game,
+        );
+        assert!(!input.boost);
+        assert!(
+            input.held.contains(&KeyCode::Char('w')),
+            "release shift while moving"
+        );
+        handle(
+            key(
+                KeyCode::Char('W'),
+                KeyEventKind::Repeat,
+                KeyModifiers::SHIFT,
+            ),
+            &mut input,
+            &mut game,
+        );
+        assert!(input.boost, "also accept modifier flags");
+        handle(Event::FocusLost, &mut input, &mut game);
+        assert!(!input.boost && input.held.is_empty());
+    }
 
     #[test]
     fn right_mouse_stays_held_until_release_or_focus_loss() {

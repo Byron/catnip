@@ -3,6 +3,236 @@
 use super::*;
 
 #[test]
+fn sniper_charge_fires_a_straight_stream_with_timing_upgrades_and_weapon_lock() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for (seconds, boosted, forced) in
+            [(0.2, false, false), (0.55, true, false), (0.7, false, true)]
+        {
+            let mut game = Game::new(7);
+            game.player.weapon = Weapon::Sniper;
+            game.player.aim = 0.3;
+            game.player.upgrades.add(Upgrade::Spread);
+            game.player.upgrades.add(Upgrade::Pierce);
+            game.player.upgrades.add(Upgrade::Range);
+            game.player.upgrades.add(Upgrade::Range);
+            let held = Input {
+                charge: true,
+                ..Input::default()
+            };
+            for _ in 0..(seconds * fps as f32).ceil() as usize {
+                game.update_player(1.0 / fps as f32, &held, &view);
+            }
+            game.update_player(0.0, &Input::default(), &view);
+            let gun = game.gatling.as_ref().unwrap();
+            assert_eq!(gun.weapon, Weapon::Sniper);
+            assert_eq!(gun.boosted, boosted);
+            assert_eq!(game.player.overheated, forced);
+            let multiplier = if forced {
+                0.75
+            } else if boosted {
+                1.1
+            } else {
+                1.0
+            };
+            assert!((gun.damage - (2.0 + 4.0 * gun.charge) * multiplier).abs() < 1e-4);
+            assert!((gun.range - (1200.0 + 600.0 * gun.charge) * 1.25).abs() < 1e-4);
+            let duration = gun.duration;
+            game.player.weapon = Weapon::Default;
+            game.player.vel = v2(0.0, 200.0);
+            while game.gatling.is_some() {
+                game.update_gatling(1.0 / fps as f32);
+            }
+            let interval = if boosted { 0.03 } else { 0.045 } / 1.25;
+            assert_eq!(game.bullets.len(), (duration / interval).ceil() as usize);
+            assert!(game.bullets.iter().all(|b| b.weapon == Weapon::Sniper
+                && b.pierce == 1
+                && !b.falloff
+                && (b.vel.angle() - 0.3).abs() < 1e-5));
+            assert!(game.bullets.last().unwrap().damage < game.bullets[0].damage);
+            assert!(
+                (game.bullets[0].vel.len() - if boosted { 8000.0 } else { 5000.0 }).abs() < 0.01
+            );
+            assert!(game.player.vel.x < 0.0, "stream has recoil");
+        }
+    }
+}
+
+#[test]
+fn shift_thrust_boosts_forward_more_than_reverse_and_heats_only_when_active() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for key in ['d', 'a', 'w'] {
+            let mut normal = Game::new(7);
+            let mut boosted = Game::new(7);
+            normal.cam = V2::default();
+            boosted.cam = V2::default();
+            let mut movement = Input {
+                held: [KeyCode::Char(key)].into(),
+                mouse: Some(v2(1400.0, 750.0)),
+                ..Input::default()
+            };
+            let mut thrust = Input {
+                boost: true,
+                held: movement.held.clone(),
+                mouse: movement.mouse,
+                ..Input::default()
+            };
+            for _ in 0..fps / 2 {
+                movement.mouse = Some(normal.player.pos + v2(1000.0, 0.0));
+                thrust.mouse = Some(boosted.player.pos + v2(1000.0, 0.0));
+                normal.update_player(1.0 / fps as f32, &movement, &view);
+                boosted.update_player(1.0 / fps as f32, &thrust, &view);
+            }
+            let ratio = boosted.player.vel.len() / normal.player.vel.len();
+            if key == 'w' {
+                assert!((ratio - 1.0).abs() < 1e-5);
+                assert_eq!(boosted.player.thrust, 0.0);
+                assert_eq!(boosted.player.heat, 0.0);
+            } else {
+                assert!((ratio - if key == 'd' { 2.2 } else { 1.5 }).abs() < 0.01);
+                assert_eq!(
+                    boosted.player.thrust.signum(),
+                    if key == 'd' { 1.0 } else { -1.0 }
+                );
+                assert!(boosted.player.heat > 0.07 && boosted.player.heat < 0.22);
+            }
+            boosted.update_player(
+                0.1,
+                &Input {
+                    boost: true,
+                    mouse: movement.mouse,
+                    ..Input::default()
+                },
+                &view,
+            );
+            assert_eq!(
+                boosted.player.thrust, 0.0,
+                "stationary input has no exhaust or extra heat"
+            );
+        }
+    }
+}
+
+#[test]
+fn thrust_uses_shared_heat_and_preserves_cooling_dash_and_laser_rules() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let thrust = Input {
+        boost: true,
+        held: [KeyCode::Char('d')].into(),
+        mouse: Some(v2(1400.0, 750.0)),
+        ..Input::default()
+    };
+    let mut game = Game::new(7);
+    game.player.heat = 0.99;
+    game.update_player(
+        0.1,
+        &Input {
+            fire: true,
+            ..thrust
+        },
+        &view,
+    );
+    assert!(game.player.overheated && game.bullets.is_empty());
+    game.update_player(
+        0.1,
+        &Input {
+            boost: true,
+            held: [KeyCode::Char('d')].into(),
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.player.thrust, 0.0);
+    assert!(
+        game.player.heat < 1.0,
+        "held shift does not prevent cooling"
+    );
+    for _ in 0..60 {
+        game.update_player(1.0 / 60.0, &Input::default(), &view);
+    }
+    assert!(!game.player.overheated);
+    game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+    game.update_player(
+        0.1,
+        &Input {
+            boost: true,
+            held: [KeyCode::Char('d')].into(),
+            ..Input::default()
+        },
+        &view,
+    );
+    assert!(game.player.thrust > 0.0 && game.player.heat > 0.0);
+    game.player.spin = None;
+    game.update_player(
+        0.05,
+        &Input {
+            boost: true,
+            dash: true,
+            held: [KeyCode::Char('d')].into(),
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.player.thrust, 0.0, "evasion retains its normal speed");
+}
+
+#[test]
+fn thrust_leaves_less_heat_for_firing_and_coolant_reduces_its_cost() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut counts = Vec::new();
+    for boost in [false, true] {
+        let mut game = Game::new(7);
+        let input = Input {
+            boost,
+            fire: true,
+            held: [KeyCode::Char('d')].into(),
+            ..Input::default()
+        };
+        for _ in 0..120 {
+            game.update_player(1.0 / 60.0, &input, &view);
+        }
+        counts.push(game.bullets.len());
+    }
+    assert!(
+        counts[1] < counts[0],
+        "thrust leaves fewer shots before heat locks the gun"
+    );
+    let mut heats = Vec::new();
+    for coolant in [false, true] {
+        let mut game = Game::new(7);
+        if coolant {
+            game.player.upgrades.add(Upgrade::Coolant);
+        }
+        for _ in 0..30 {
+            game.update_player(
+                1.0 / 60.0,
+                &Input {
+                    boost: true,
+                    held: [KeyCode::Char('d')].into(),
+                    ..Input::default()
+                },
+                &view,
+            );
+        }
+        heats.push(game.player.heat);
+    }
+    assert!(heats[1] < heats[0]);
+}
+
+#[test]
 fn main_weapon_switching_keeps_cooldown_and_menu_number_keys() {
     let view = View {
         scale: 1.0,
@@ -2172,6 +2402,11 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
     };
     // Title, play, boss entrance and fight, pause, cards, death, game over.
     draw(&game);
+    for thrust in [1.0, -1.0] {
+        game.player.thrust = thrust;
+        draw(&game);
+    }
+    game.player.thrust = 0.0;
     for e in &mut game.enemies {
         e.stagger(6.0);
     }
@@ -2193,6 +2428,11 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
     game.player.spin = None;
     draw(&game);
     game.player.weapon = Weapon::Sniper;
+    game.player.charge = 0.7;
+    game.update_player(0.0, &Input::default(), &view);
+    game.update_gatling(0.1);
+    draw(&game);
+    game.update_gatling(2.0);
     game.player.fire_cd = 0.0;
     game.player.heat = 0.0;
     game.player.overheated = false;

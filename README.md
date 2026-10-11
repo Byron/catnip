@@ -44,6 +44,7 @@ synthesis, audio initialization, and playback when comparing frame rates.
 | Control | Action |
 |---|---|
 | WASD | move |
+| Shift + WASD | heat-powered thrust: stronger forward, weaker reverse |
 | mouse | aim |
 | hold left click | fire |
 | 1 / 2 | select default gun / sniper |
@@ -77,11 +78,21 @@ points per level; Spread, Long Range, Coolant, and Rapid still apply.
 Sniper rounds also destroy enemy bullets without being consumed. Each interception
 randomly deflects the round by up to 30 degrees, preserving its speed and damage.
 Both main weapons share heat and firing cooldown. Press **1** to switch back.
+With the sniper selected, middle mouse / E charges a rapid stream of sniper rounds
+instead of a spread barrage. It follows your aim without scatter, pierces ships,
+and deflects off enemy bullets. More charge increases damage, reach, and duration;
+Spread upgrades increase its firing rate while keeping the stream straight.
 Heavy projectile hits stun enemies: they stop attacking, slow to a drift, and
 tumble with yellow sparks before recovering. A full sniper hit stuns for about
 0.9 seconds; weakened piercing rounds cause shorter stuns, and light hits cause
 none. Bosses resist weaker hits and only stagger briefly, pausing their attacks.
 Repeated heavy hits refresh the stun rather than adding durations together.
+
+Hold Shift while moving along your aim direction to engage the rear rocket,
+giving about twice the forward speed. Moving backward engages two smaller front
+thrusters for a weaker but noticeable boost. Thrust adds to gun heat, leaving less
+room for firing or charging; overheating disables the extra thrust until you cool.
+Sideways movement keeps its usual speed, and Coolant reduces thrust heat too.
 
 Hold middle mouse or E to charge the gatling gun (about 0.6 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges

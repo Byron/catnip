@@ -129,6 +129,38 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
 
     let p = &game.player;
+    if p.thrust != 0.0 && matches!(game.state, State::Playing | State::Paused) {
+        let forward = V2::from_angle(p.aim);
+        let exhaust = forward * -p.thrust.signum();
+        let count = if p.thrust > 0.0 { 1 } else { 2 };
+        for jet in 0..count {
+            let nozzle = p.pos
+                + exhaust * 18.0
+                + forward.perp()
+                    * if count == 1 {
+                        0.0
+                    } else {
+                        (jet as f32 * 2.0 - 1.0) * 9.0
+                    };
+            for i in 0..8 {
+                let flicker = 0.8 + 0.2 * (game.time * 60.0 + i as f32 + jet as f32).sin();
+                let length = if count == 1 { 6.0 } else { 3.5 } * p.thrust.abs();
+                let at = nozzle + exhaust * ((i as f32 + 1.0) * length * flicker);
+                let hue = if i < 2 {
+                    Hue::White
+                } else if i < 5 {
+                    Hue::Yellow
+                } else {
+                    Hue::Orange
+                };
+                draw.sprite(
+                    sprites.spark[hue.index()][if i < 3 { 2 } else { 1 }],
+                    at,
+                    Z_PLAYER - 1,
+                );
+            }
+        }
+    }
     if p.charge > 0.0 && p.charge_spin {
         for i in 0..12 {
             let at = p.pos

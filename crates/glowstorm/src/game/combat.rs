@@ -51,6 +51,8 @@ pub(super) const MIN_DAMAGE: f32 = 0.75;
 pub(super) const SHIELD_DPS: f32 = 7.0;
 
 pub struct Gatling {
+    /// Weapon selected when discharged; switching cannot convert an active burst.
+    pub weapon: Weapon,
     pub charge: f32,
     pub boosted: bool,
     /// Damage per pellet at the beginning of the barrage.
@@ -81,36 +83,63 @@ impl Game {
         }
         let Some(gun) = &mut self.gatling else { return };
         let active = dt.min(gun.life);
-        let interval = if gun.boosted { 0.025 } else { 0.035 };
+        let sniper = gun.weapon == Weapon::Sniper;
+        let spread = self.player.upgrades.level(Upgrade::Spread);
+        let interval = if sniper {
+            (if gun.boosted { 0.03 } else { 0.045 }) / (1.0 + 0.25 * f32::from(spread))
+        } else if gun.boosted {
+            0.025
+        } else {
+            0.035
+        };
         let aim = self.player.aim;
         let dir = V2::from_angle(aim);
         let muzzle = self.player.pos + dir * 22.0;
-        let speed = BULLET_SPEED * if gun.boosted { 1.6 } else { 1.25 };
-        let spread = self.player.upgrades.level(Upgrade::Spread);
+        let speed = BULLET_SPEED
+            * match (sniper, gun.boosted) {
+                (true, true) => 6.4,
+                (true, false) => 4.0,
+                (false, true) => 1.6,
+                (false, false) => 1.25,
+            };
         let pierce = self.player.upgrades.level(Upgrade::Pierce);
-        let falloff = self.player.upgrades.level(Upgrade::Range) == 0;
+        let falloff = !sniper && self.player.upgrades.level(Upgrade::Range) == 0;
         let mut flashes = Vec::new();
         while gun.fire_cd < active {
             let strength = (gun.life - gun.fire_cd) / gun.duration;
             let damage = gun.damage * (0.35 + 0.65 * strength);
-            let aim = aim + self.rng.range(-0.025, 0.025);
+            let aim = if sniper {
+                aim
+            } else {
+                aim + self.rng.range(-0.025, 0.025)
+            };
             let half = 1 + i32::from(spread);
-            for pellet in 0..2 * (2 * half + 1) {
+            let count = if sniper { 1 } else { 2 * (2 * half + 1) };
+            for pellet in 0..count {
                 let i = pellet / 2 - half;
                 let offset = if pellet % 2 == 0 { -0.025 } else { 0.025 };
-                let d = V2::from_angle(aim + i as f32 * 0.12 + offset);
-                let damage = damage * if i.abs() > 1 { 0.35 } else { 1.0 };
+                let d = V2::from_angle(if sniper {
+                    aim
+                } else {
+                    aim + i as f32 * 0.12 + offset
+                });
+                let damage = damage * if !sniper && i.abs() > 1 { 0.35 } else { 1.0 };
                 self.bullets.push(Bullet {
                     pos: muzzle,
                     prev: self.player.pos,
-                    vel: d * speed + self.player.vel * 0.25,
+                    vel: d * speed
+                        + if sniper {
+                            V2::default()
+                        } else {
+                            self.player.vel * 0.25
+                        },
                     traveled: 0.0,
                     range: gun.range,
                     damage,
                     pierce,
                     hit_ids: Vec::new(),
                     falloff,
-                    weapon: Weapon::Default,
+                    weapon: gun.weapon,
                 });
                 self.player.vel += -d * 3.0 * damage;
             }
