@@ -333,6 +333,10 @@ impl Game {
                     self.pause();
                     return;
                 }
+                if input.middle_clicked && !self.bfgs.is_empty() {
+                    self.detonate_bfgs();
+                    self.player.charge_blocked = true;
+                }
                 if self.hitstop > 0.0 {
                     self.hitstop -= dt;
                     return;

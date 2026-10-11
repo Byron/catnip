@@ -108,7 +108,8 @@ damage and knockback. Impacts splatter hot plasma across the target.
 Middle mouse / E charges the **BFG**, gathering an increasingly large ball of
 green plasma at the muzzle. Release sends it through the arena, annihilating
 ordinary enemies in its path and heavily damaging bosses. It consumes enemy
-bullets and keeps flying until it hits a wall or reaches its range, then erupts
+bullets and keeps flying until it hits a wall or reaches its range. Press middle
+mouse again to detonate all flying BFG balls immediately. Each ball erupts
 in a wide green blast that damages and throws back nearby enemies. The blast
 lights up each target with green plasma, without hurting your ship. More charge
 means a bigger ball and blast; the usual heat timing bonus and overheat penalty apply.

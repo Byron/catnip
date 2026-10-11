@@ -35,6 +35,12 @@ impl Bfg {
 }
 
 impl Game {
+    pub(super) fn detonate_bfgs(&mut self) {
+        for ball in std::mem::take(&mut self.bfgs) {
+            self.bfg_blast(ball.pos, ball.blast_radius(), ball.damage, 1.0, 0.0);
+        }
+    }
+
     pub(super) fn update_bfgs(&mut self, dt: f32) {
         let mut killed = Vec::new();
         let mut impacts = Vec::new();

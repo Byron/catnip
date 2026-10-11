@@ -182,6 +182,73 @@ fn bfg_charge_grows_and_honors_timing_power_upgrades_and_pause() {
 }
 
 #[test]
+fn middle_click_detonates_flying_bfgs_and_requires_release_before_charging_again() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.player.weapon = Weapon::Plasma;
+    game.player.pos = v2(300.0, 700.0);
+    let hp = game.player.hp;
+    for pos in [v2(700.0, 700.0), v2(1700.0, 700.0)] {
+        game.bfgs
+            .push(Bfg::new(pos, v2(560.0, 0.0), 0.5, 300.0, 1600.0));
+    }
+    game.add_enemy(Kind::Tank, v2(700.0, 900.0), V2::default(), false);
+    game.enemies[0].hp = 1000.0;
+    game.orbs.push(Orb {
+        pos: v2(700.0, 900.0),
+        prev: v2(700.0, 900.0),
+        vel: V2::default(),
+        life: 3.0,
+        heavy: false,
+    });
+    let held = Input {
+        charge: true,
+        ..Input::default()
+    };
+    game.update(0.0, &held, &view);
+    assert_eq!(game.bfgs.len(), 2, "holding after launch does not detonate");
+    let positions: Vec<_> = game.bfgs.iter().map(|ball| ball.pos).collect();
+    let mut click = Input {
+        charge: true,
+        middle_clicked: true,
+        ..Input::default()
+    };
+    game.pause();
+    game.update(0.0, &click, &view);
+    assert_eq!(game.bfgs.len(), 2, "pause freezes the balls");
+    game.state = State::Playing;
+    game.update(0.0, &click, &view);
+    assert!(game.bfgs.is_empty());
+    for pos in positions {
+        assert!(
+            game.rings
+                .iter()
+                .any(|ring| ring.pos == pos && ring.hue == Hue::Green)
+        );
+    }
+    assert!(game.enemies[0].hp < 900.0 && game.enemies[0].impulse.y > 400.0);
+    assert!(game.orbs.is_empty());
+    assert_eq!(game.player.hp, hp);
+    assert!(game.particles.iter().any(|p| p.hue == Hue::Green));
+    assert_eq!(game.player.charge, 0.0);
+    assert!(game.player.charge_blocked);
+    click.end_frame();
+    game.update_player(0.4, &click, &view);
+    assert_eq!(
+        game.player.charge, 0.0,
+        "the detonating press cannot charge another shot"
+    );
+    game.update_player(0.0, &Input::default(), &view);
+    assert!(!game.player.charge_blocked);
+    game.update_player(0.12, &held, &view);
+    assert!(game.player.charge > 0.0, "release rearms ordinary charging");
+}
+
+#[test]
 fn rocket_slot_fires_slow_explosive_rounds_and_charge_scales_to_ten() {
     let view = View {
         scale: 1.0,

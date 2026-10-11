@@ -12,6 +12,7 @@ pub struct Input {
     pub mouse: Option<V2>,
     pub fire: bool,
     pub charge: bool,
+    pub middle_clicked: bool,
     pub clicked: bool,
     pub dash: bool,
     pub spin: bool,
@@ -32,6 +33,7 @@ impl Input {
     pub fn end_frame(&mut self) {
         self.pressed.clear();
         self.clicked = false;
+        self.middle_clicked = false;
         self.dash = false;
         self.mouse_moved = false;
     }

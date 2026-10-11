@@ -168,7 +168,10 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                     input.clicked = true;
                 }
                 MouseEventKind::Up(MouseButton::Left) => input.fire = false,
-                MouseEventKind::Down(MouseButton::Middle) => input.charge = true,
+                MouseEventKind::Down(MouseButton::Middle) => {
+                    input.middle_clicked |= !input.charge;
+                    input.charge = true;
+                }
                 MouseEventKind::Up(MouseButton::Middle) => input.charge = false,
                 MouseEventKind::Down(MouseButton::Right) => {
                     input.spin = true;
@@ -182,6 +185,7 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
             input.held.clear();
             input.fire = false;
             input.charge = false;
+            input.middle_clicked = false;
             input.spin = false;
             input.boost = false;
             game.on_focus_lost();
@@ -371,8 +375,19 @@ mod tests {
             &mut input,
             &mut game,
         );
+        assert!(input.middle_clicked);
         input.end_frame();
         assert!(input.charge, "middle mouse stays held between frames");
+        assert!(!input.middle_clicked);
+        handle(
+            mouse(MouseEventKind::Down(MouseButton::Middle)),
+            &mut input,
+            &mut game,
+        );
+        assert!(
+            !input.middle_clicked,
+            "a repeated down event is not a fresh click"
+        );
         assert!(!input.clicked && !input.fire && !input.dash);
         handle(
             mouse(MouseEventKind::Up(MouseButton::Middle)),
@@ -401,12 +416,13 @@ mod tests {
             &mut input,
             &mut game,
         );
+        assert!(input.middle_clicked);
         handle(
             Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
             &mut input,
             &mut game,
         );
         handle(Event::FocusLost, &mut input, &mut game);
-        assert!(!input.charge && input.held.is_empty());
+        assert!(!input.charge && !input.middle_clicked && input.held.is_empty());
     }
 }
