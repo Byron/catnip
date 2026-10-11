@@ -987,20 +987,20 @@ fn gatling_fires_spread_volleys_follows_aim_and_fades() {
     game.player.heat = 0.95;
     game.update_player(1.0 / 60.0, &Input::default(), &view);
     game.update_gatling(0.01);
-    assert_eq!(
-        game.bullets.len(),
-        3,
-        "each volley is a three-pellet spread"
+    assert_eq!(game.bullets.len(), 6, "each volley is a six-pellet spray");
+    assert!(game.bullets[0].vel.y < 0.0 && game.bullets[5].vel.y > 0.0);
+    assert_ne!(
+        game.bullets[0].vel, game.bullets[1].vel,
+        "paired pellets fan apart"
     );
-    assert!(game.bullets[0].vel.y < 0.0 && game.bullets[2].vel.y > 0.0);
-    let first = game.bullets[1].damage;
-    let origin = game.bullets[1].pos;
+    let first = game.bullets[2].damage;
+    let origin = game.bullets[2].pos;
     assert!(game.player.vel.x < 0.0, "barrage kicks the ship backward");
     game.player.pos += v2(0.0, 100.0);
     game.player.aim = TAU / 4.0;
     game.update_gatling(0.025);
-    assert_eq!(game.bullets.len(), 6);
-    assert!(game.bullets[4].vel.y > 0.0 && game.bullets[4].pos.y > origin.y);
+    assert_eq!(game.bullets.len(), 12);
+    assert!(game.bullets[8].vel.y > 0.0 && game.bullets[8].pos.y > origin.y);
     game.update_gatling(0.5);
     assert!(
         game.bullets.last().unwrap().damage < first,
@@ -1032,7 +1032,7 @@ fn gatling_barrage_count_and_power_are_independent_of_frame_rate() {
         counts.push(game.bullets.len());
         totals.push(game.bullets.iter().map(|b| b.damage).sum::<f32>());
     }
-    assert!(counts.iter().all(|&n| n == counts[0] && n > 150));
+    assert!(counts.iter().all(|&n| n == counts[0] && n > 300));
     assert!(totals.iter().all(|n| (n - totals[0]).abs() < 0.01));
 }
 
@@ -1050,13 +1050,13 @@ fn gatling_uses_spread_pierce_and_range_upgrades() {
     game.player.charge = 0.5;
     game.update_player(1.0 / 60.0, &Input::default(), &view);
     game.update_gatling(0.01);
-    assert_eq!(game.bullets.len(), 5);
+    assert_eq!(game.bullets.len(), 10);
     assert!(
         game.bullets
             .iter()
             .all(|b| b.pierce == 1 && !b.falloff && b.range > 1000.0)
     );
-    assert!(game.bullets[0].damage < game.bullets[1].damage);
+    assert!(game.bullets[0].damage < game.bullets[2].damage);
 }
 
 #[test]

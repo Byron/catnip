@@ -88,8 +88,11 @@ impl Game {
             let strength = (gun.life - gun.fire_cd) / gun.duration;
             let damage = gun.damage * (0.35 + 0.65 * strength);
             let aim = aim + self.rng.range(-0.025, 0.025);
-            for i in -(1 + i32::from(spread))..=1 + i32::from(spread) {
-                let d = V2::from_angle(aim + i as f32 * 0.12);
+            let half = 1 + i32::from(spread);
+            for pellet in 0..2 * (2 * half + 1) {
+                let i = pellet / 2 - half;
+                let offset = if pellet % 2 == 0 { -0.025 } else { 0.025 };
+                let d = V2::from_angle(aim + i as f32 * 0.12 + offset);
                 let damage = damage * if i.abs() > 1 { 0.35 } else { 1.0 };
                 self.bullets.push(Bullet {
                     pos: muzzle,

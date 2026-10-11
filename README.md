@@ -68,7 +68,8 @@ time they're twice as tough.
 Hold middle mouse or E to charge the gatling gun (about 1.8 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges
 increase pellet damage, reach, and burst duration (up to 1.6 seconds); the barrage
-starts strong and weakens as it runs out. Spread upgrades add pellets, and
+starts strong and weakens as it runs out. Each volley sprays six pellets;
+Spread upgrades add four more per level, and
 Piercing and Long Range apply too.
 Release in the final 10% of the heat meter, when **RELEASE!** appears, for 10%
 extra damage, faster pellets, and a faster firing rate. Holding too long forces
