@@ -1,15 +1,21 @@
 //! Sound synthesis and playback. Clips are generated as sample buffers at
 //! start-up (no asset files) and mixed by rodio.
 
-use std::num::NonZero;
+use std::{num::NonZero, time::Duration};
 
-use rodio::{MixerDeviceSink, buffer::SamplesBuffer};
+use rodio::{
+    MixerDeviceSink, Source,
+    buffer::SamplesBuffer,
+    mixer::Mixer,
+    source::{LimitSettings, Zero},
+};
 
 pub const RATE: u32 = 44_100;
 
 /// Mono clips, indexed by the order they were given to `open`.
 pub struct Speaker {
-    sink: MixerDeviceSink,
+    _sink: MixerDeviceSink,
+    mixer: Mixer,
     clips: Vec<SamplesBuffer>,
 }
 
@@ -18,20 +24,36 @@ impl Speaker {
     pub fn open(clips: Vec<Vec<f32>>) -> Option<Self> {
         let mut sink = rodio::DeviceSinkBuilder::open_default_sink().ok()?;
         sink.log_on_drop(false);
+        let (mixer, source) = rodio::mixer::mixer(NonZero::<u16>::MIN, NonZero::new(RATE).unwrap());
+        // Keep the limited master source alive between clips.
+        mixer.add(Zero::new(NonZero::<u16>::MIN, NonZero::new(RATE).unwrap()));
+        sink.mixer().add(limit_mix(source));
         let clips = clips
             .into_iter()
             .map(|samples| {
                 SamplesBuffer::new(NonZero::<u16>::MIN, NonZero::new(RATE).unwrap(), samples)
             })
             .collect();
-        Some(Self { sink, clips })
+        Some(Self {
+            _sink: sink,
+            mixer,
+            clips,
+        })
     }
 
     pub fn play(&self, clip: usize) {
         if let Some(buffer) = self.clips.get(clip) {
-            self.sink.mixer().add(buffer.clone());
+            self.mixer.add(buffer.clone());
         }
     }
+}
+
+fn limit_mix(source: impl Source + Send) -> impl Source + Send {
+    source.limit(
+        LimitSettings::default()
+            .with_threshold(-6.0)
+            .with_attack(Duration::ZERO),
+    )
 }
 
 /// Tiny deterministic noise source.
@@ -123,4 +145,55 @@ pub fn sine(p: f32) -> f32 {
 
 pub fn triangle(p: f32) -> f32 {
     1.0 - 4.0 * (p - 0.5).abs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn master_limiter_controls_overlapping_clips_and_recovers_after_silence() {
+        let (mixer, source) = rodio::mixer::mixer(NonZero::<u16>::MIN, NonZero::new(RATE).unwrap());
+        let mut output = limit_mix(source);
+        let quiet = vec![0.1, -0.1, 0.0];
+        mixer.add(SamplesBuffer::new(
+            NonZero::<u16>::MIN,
+            NonZero::new(RATE).unwrap(),
+            quiet.clone(),
+        ));
+        assert_eq!(output.by_ref().take(3).collect::<Vec<_>>(), quiet);
+        for _ in 0..40 {
+            mixer.add(SamplesBuffer::new(
+                NonZero::<u16>::MIN,
+                NonZero::new(RATE).unwrap(),
+                vec![0.4, -0.4, 0.0],
+            ));
+        }
+        let peak: Vec<_> = output.by_ref().take(3).collect();
+        assert!(peak[0] > 0.4 && peak[1] < -0.4);
+        assert!(peak.iter().all(|sample| sample.abs() <= 0.502));
+        mixer.add(Zero::new_samples(
+            NonZero::<u16>::MIN,
+            NonZero::new(RATE).unwrap(),
+            RATE as usize,
+        ));
+        assert!(
+            output
+                .by_ref()
+                .take(RATE as usize)
+                .all(|sample| sample == 0.0)
+        );
+        mixer.add(SamplesBuffer::new(
+            NonZero::<u16>::MIN,
+            NonZero::new(RATE).unwrap(),
+            quiet.clone(),
+        ));
+        let recovered: Vec<_> = output.take(3).collect();
+        assert!(
+            recovered
+                .iter()
+                .zip(quiet)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.001)
+        );
+    }
 }
