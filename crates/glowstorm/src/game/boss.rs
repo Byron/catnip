@@ -24,6 +24,7 @@ pub struct Boss {
     pub hp: f32,
     pub max_hp: f32,
     pub flash: f32,
+    pub stun: f32,
     pub spin: f32,
     pub core_spin: f32,
     /// Seconds left of the entrance; invulnerable meanwhile.
@@ -44,6 +45,16 @@ pub struct Boss {
 }
 
 impl Boss {
+    pub(super) fn stagger(&mut self, damage: f32) {
+        if self.entering > 0.0 || damage < 5.0 {
+            return;
+        }
+        if self.stun <= 0.0 {
+            self.vel = self.vel * 0.5;
+        }
+        self.stun = self.stun.max((damage * 0.05).min(0.35));
+    }
+
     pub(super) fn resize_arena(&mut self, size: V2) {
         let r = BOSS_RADIUS + WALL;
         self.home = self.home.clamp(v2(r, r), size - v2(r, r));
@@ -91,6 +102,7 @@ impl Game {
             hp: max_hp,
             max_hp,
             flash: 0.0,
+            stun: 0.0,
             spin: 0.0,
             core_spin: 0.0,
             entering: ENTER_TIME,
@@ -121,8 +133,16 @@ impl Game {
         };
         let phase = b.phase();
         b.flash -= dt;
-        b.windup = (b.windup - dt).max(0.0);
-        b.spin += dt * (0.5 + 0.35 * phase as f32);
+        let stunned = b.stun > 0.0;
+        if !stunned {
+            b.windup = (b.windup - dt).max(0.0);
+        }
+        b.spin += dt
+            * if stunned {
+                -3.0
+            } else {
+                0.5 + 0.35 * phase as f32
+            };
         b.core_spin -= dt * (1.4 + 0.9 * phase as f32);
 
         if b.entering > 0.0 {
@@ -147,7 +167,10 @@ impl Game {
         };
 
         // Movement: hover at range and circle the player, or dash when charging.
-        if b.pattern == Pattern::Charge && b.step == 1 {
+        if stunned {
+            b.vel = b.vel * (-0.8 * dt).exp();
+            b.pos += b.vel * dt;
+        } else if b.pattern == Pattern::Charge && b.step == 1 {
             b.pos += b.vel * dt;
         } else {
             let radial = ((dist - KEEP_AWAY) / KEEP_AWAY).clamp(-1.0, 1.0) * 170.0;
@@ -173,9 +196,12 @@ impl Game {
             b.impulse.y = 0.0;
         }
 
-        b.pattern_t -= dt;
-        b.step_t -= dt;
+        if !stunned {
+            b.pattern_t -= dt;
+            b.step_t -= dt;
+        }
         match b.pattern {
+            _ if stunned => {}
             Pattern::Rest => {
                 if b.pattern_t <= 0.0 {
                     self.next_pattern(&mut b);
@@ -295,6 +321,7 @@ impl Game {
             }
         }
 
+        b.stun = (b.stun - dt).max(0.0);
         if b.hp <= 0.0 {
             self.boss_defeated(b);
         } else {

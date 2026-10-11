@@ -75,6 +75,11 @@ six times the damage. Rounds pierce ships, including the boss, losing 35% of the
 remaining damage with each hit. Piercing upgrades reduce that loss by 10 percentage
 points per level; Spread, Long Range, Coolant, and Rapid still apply.
 Both main weapons share heat and firing cooldown. Press **1** to switch back.
+Heavy projectile hits stun enemies: they stop attacking, slow to a drift, and
+tumble with yellow sparks before recovering. A full sniper hit stuns for about
+0.9 seconds; weakened piercing rounds cause shorter stuns, and light hits cause
+none. Bosses resist weaker hits and only stagger briefly, pausing their attacks.
+Repeated heavy hits refresh the stun rather than adding durations together.
 
 Hold middle mouse or E to charge the gatling gun (about 0.6 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges

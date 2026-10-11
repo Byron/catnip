@@ -62,6 +62,14 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             e.spin
         };
         draw.sprite(set.at(angle, white), e.pos + shudder, Z_ENEMIES);
+        if e.stun > 0.0 {
+            for i in 0..3 {
+                let at = e.pos
+                    + V2::from_angle(game.time * 5.0 + e.phase + i as f32 * TAU / 3.0)
+                        * (e.kind.radius() + 8.0);
+                draw.sprite(sprites.spark[Hue::Yellow.index()][1], at, Z_ENEMIES + 1);
+            }
+        }
         if e.enraged {
             // A red ring pulsing outward, three times a second.
             let frames = &sprites.ring[Hue::Red.index()];
@@ -260,12 +268,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
 }
 
 pub(super) fn draw_boss(draw: &mut Draw, sprites: &Sprites, game: &Game, b: &crate::game::Boss) {
-    let blink = b.windup > 0.0 && (game.time * 16.0) as i32 % 2 == 0;
+    let blink = b.stun <= 0.0 && b.windup > 0.0 && (game.time * 16.0) as i32 % 2 == 0;
     let white = b.flash > 0.0 || blink;
     draw.sprite(sprites.boss_shell.at(b.spin, white), b.pos, Z_BOSS);
     draw.sprite(sprites.boss_core.at(b.core_spin, white), b.pos, Z_BOSS + 1);
     // Charge tell: a blinking dotted line along the dash path.
-    if b.charging() && (game.time * 12.0) as i32 % 2 == 0 {
+    if b.stun <= 0.0 && b.charging() && (game.time * 12.0) as i32 % 2 == 0 {
         for i in 1..18 {
             let at = b.pos + b.charge_dir * (i as f32 * 40.0 + 40.0);
             draw.sprite(sprites.spark[Hue::Violet.index()][1], at, Z_PARTICLES);

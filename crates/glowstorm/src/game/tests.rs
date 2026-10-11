@@ -89,10 +89,13 @@ fn sniper_pierces_in_order_once_per_ship_and_loses_power() {
             }
             let retained = 0.65 + 0.1 * pierce as f32;
             for (i, e) in game.enemies.iter().rev().enumerate() {
+                let damage = 6.0 * retained.powi(i as i32);
                 assert!(
-                    (100.0 - e.hp - 6.0 * retained.powi(i as i32)).abs() < 1e-4,
+                    (100.0 - e.hp - damage).abs() < 1e-4,
                     "fps {fps}, pierce {pierce}, target {i}"
                 );
+                let stun = if damage >= 3.0 { damage * 0.15 } else { 0.0 };
+                assert!((e.stun - stun).abs() < 1e-4);
             }
             assert_eq!(game.bullets.len(), 1);
             assert!(game.bullets[0].faded());
@@ -102,6 +105,111 @@ fn sniper_pierces_in_order_once_per_ship_and_loses_power() {
             assert!(game.bullets.is_empty());
         }
     }
+}
+
+#[test]
+fn stunned_enemies_drift_tumble_and_recover_without_attacking() {
+    for kind in Kind::ALL {
+        for fps in [30, 60, 144] {
+            let mut game = Game::new(7);
+            game.state = State::Playing;
+            game.player.pos = v2(800.0, 500.0);
+            game.add_enemy(kind, v2(500.0, 500.0), v2(200.0, 0.0), false);
+            let e = &mut game.enemies[0];
+            e.act = Act::Windup;
+            e.act_t = 0.0;
+            e.cooldown = 0.0;
+            e.stagger(2.9);
+            assert_eq!(e.stun, 0.0);
+            assert_eq!(e.act, Act::Windup);
+            assert_eq!(e.vel, v2(200.0, 0.0));
+            e.stagger(6.0);
+            assert_eq!(e.vel, v2(70.0, 0.0));
+            let (spin, facing) = (e.spin, e.facing);
+            e.impulse = v2(0.0, 80.0);
+            for _ in 0..fps / 2 {
+                game.update_enemies(1.0 / fps as f32);
+            }
+            let e = &mut game.enemies[0];
+            assert_eq!(e.act, Act::Recover);
+            assert!(!e.winding_up());
+            assert_eq!(e.act_t, 0.2, "attack timers freeze during stun");
+            assert!(e.pos.x > 520.0 && e.pos.x < 540.0 && e.pos.y > 510.0);
+            assert!(e.vel.x < 50.0 && e.vel.x > 40.0);
+            assert!((e.spin - spin).abs() > 2.0 && (e.facing - facing).abs() > 2.0);
+            assert!(game.orbs.is_empty() && game.shockwaves.is_empty());
+            let vel = e.vel;
+            e.stagger(100.0);
+            e.stagger(6.0);
+            assert_eq!(e.stun, 1.2, "hits refresh with a duration cap");
+            assert_eq!(e.vel, vel, "refreshing does not repeatedly brake the drift");
+            for _ in 0..fps * 2 {
+                game.update_enemies(1.0 / fps as f32);
+            }
+            assert_eq!(game.enemies[0].stun, 0.0);
+            assert_ne!(game.enemies[0].act, Act::Recover);
+        }
+    }
+}
+
+#[test]
+fn stun_respects_walls_and_pause() {
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.add_enemy(Kind::Shooter, v2(500.0, 500.0), V2::default(), false);
+    let e = &mut game.enemies[0];
+    e.stagger(6.0);
+    e.pos.x = WALL + e.kind.radius();
+    e.impulse = v2(-1000.0, 0.0);
+    game.update_enemies(0.1);
+    let e = &game.enemies[0];
+    assert_eq!(e.pos.x, WALL + e.kind.radius());
+    assert_eq!(e.impulse.x, 0.0);
+    let (stun, pos, spin) = (e.stun, e.pos, e.spin);
+    game.pause();
+    game.update(
+        0.5,
+        &Input::default(),
+        &View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        },
+    );
+    let e = &game.enemies[0];
+    assert_eq!((e.stun, e.pos, e.spin), (stun, pos, spin));
+}
+
+#[test]
+fn boss_stagger_pauses_attacks_then_recovers_and_still_allows_death() {
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.spawn_boss();
+    game.update_boss(3.0);
+    game.update_boss(0.1);
+    let b = game.boss.as_mut().unwrap();
+    b.pattern = Pattern::Fan;
+    b.windup = 0.2;
+    b.stagger(4.9);
+    assert_eq!(b.stun, 0.0);
+    b.stagger(6.0);
+    assert!((b.stun - 0.3).abs() < 1e-5);
+    let (pos, spin) = (b.pos, b.spin);
+    game.update_boss(0.1);
+    let b = game.boss.as_mut().unwrap();
+    assert_eq!(b.windup, 0.2);
+    assert!(b.spin < spin && b.pos != pos, "boss tumbles and drifts");
+    b.stagger(100.0);
+    b.stagger(6.0);
+    assert_eq!(b.stun, 0.35);
+    game.update_boss(0.4);
+    assert!(game.orbs.is_empty());
+    game.update_boss(0.3);
+    assert!(!game.orbs.is_empty(), "the paused attack resumes");
+    let b = game.boss.as_mut().unwrap();
+    b.stagger(6.0);
+    b.hp = 0.0;
+    game.update_boss(0.01);
+    assert!(game.boss.is_none(), "stun cannot postpone death");
 }
 
 #[test]
@@ -1540,6 +1648,14 @@ fn normal_shots_transfer_forward_momentum_to_enemies_and_bosses() {
             impulse.x > 0.4 && impulse.x < 2.0 && impulse.y.abs() < impulse.x * 0.05,
             "momentum follows the bullet: {impulse:?}"
         );
+        assert_eq!(
+            if boss_target {
+                game.boss.as_ref().unwrap().stun
+            } else {
+                game.enemies[0].stun
+            },
+            0.0
+        );
     }
 }
 
@@ -1622,6 +1738,7 @@ fn boss_entrance_blocks_damage_and_bullet_impulse() {
     };
     let mut game = Game::new(27);
     game.wave = 5;
+    game.player.weapon = Weapon::Sniper;
     game.spawn_boss();
     game.boss.as_mut().unwrap().pos = v2(450.0, 500.0);
     let hp = game.boss.as_ref().unwrap().hp;
@@ -1638,6 +1755,7 @@ fn boss_entrance_blocks_damage_and_bullet_impulse() {
     game.update_bullets(0.15);
     assert_eq!(game.boss.as_ref().unwrap().hp, hp);
     assert_eq!(game.boss.as_ref().unwrap().impulse, V2::default());
+    assert_eq!(game.boss.as_ref().unwrap().stun, 0.0);
 }
 
 #[test]
@@ -1923,6 +2041,10 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         assert!(!out.is_empty());
     };
     // Title, play, boss entrance and fight, pause, cards, death, game over.
+    draw(&game);
+    for e in &mut game.enemies {
+        e.stagger(6.0);
+    }
     draw(&game);
     game.player.spin = Some(Spin::new(1.0, true, 1.1, game.player.pos, 0.0));
     game.update_player(

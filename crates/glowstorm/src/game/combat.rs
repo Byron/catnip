@@ -412,6 +412,7 @@ impl Game {
                         b.strength() * power
                     };
                     boss.hp -= damage;
+                    boss.stagger(damage);
                     boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
                     boss.flash = 0.05;
                     hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
@@ -425,6 +426,7 @@ impl Game {
                 let e = &mut enemies[i];
                 let damage = b.strength() * power;
                 e.hp -= damage;
+                e.stagger(damage);
                 e.flash = 0.07;
                 let knock = e.kind.spec().knockback;
                 e.impulse += b.vel * (knock * damage / BULLET_SPEED);

@@ -133,6 +133,8 @@ pub struct Enemy {
     pub(super) impulse: V2,
     pub(super) hp: f32,
     pub flash: f32,
+    /// Seconds left drifting without steering or attacking after a heavy hit.
+    pub stun: f32,
     pub spin: f32,
     pub facing: f32,
     pub(super) cooldown: f32,
@@ -152,6 +154,20 @@ pub struct Enemy {
 impl Enemy {
     pub fn winding_up(&self) -> bool {
         self.act == Act::Windup
+    }
+
+    pub(super) fn stagger(&mut self, damage: f32) {
+        if damage < 3.0 {
+            return;
+        }
+        if self.stun <= 0.0 {
+            self.vel = self.vel * 0.35;
+        }
+        self.stun = self.stun.max((damage * 0.15).min(1.2));
+        // Cancel the attack so recovery always starts with a fresh telegraph.
+        self.act = Act::Recover;
+        self.act_t = 0.2;
+        self.cooldown = self.cooldown.max(0.4);
     }
 }
 
@@ -221,6 +237,7 @@ impl Game {
             impulse: V2::default(),
             hp,
             flash: 0.0,
+            stun: 0.0,
             spin: phase,
             facing: (self.player.pos - pos).angle(),
             cooldown,
@@ -265,11 +282,15 @@ impl Game {
             let dist = to_player.len();
             let dir = to_player.norm();
             e.flash -= dt;
-            e.act_t -= dt;
-            e.cooldown -= dt;
+            let stunned = e.stun > 0.0;
+            if !stunned {
+                e.act_t -= dt;
+                e.cooldown -= dt;
+            }
             let mut desired = V2::default();
             let mut steer = 3.0;
             match (e.kind, e.act) {
+                _ if stunned => steer = 0.8,
                 (Kind::Chaser, Act::Move) => {
                     desired = dir * 230.0 * speedup;
                     if chasing && dist < 300.0 && e.cooldown <= 0.0 {
@@ -402,11 +423,18 @@ impl Game {
                 e.vel.y = -e.vel.y;
                 e.impulse.y = 0.0;
             }
-            let spin = e.kind.spec().spin;
-            // Winding up spins faster, part of the tell.
-            e.spin += dt * spin * if e.act == Act::Windup { 3.5 } else { 1.0 };
-            let turn = (dir.angle() - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;
-            e.facing += turn * (1.0 - (-6.0 * dt).exp());
+            if stunned {
+                let tumble = (5.0 + e.phase) * if e.phase > TAU / 2.0 { -1.0 } else { 1.0 };
+                e.spin += dt * tumble;
+                e.facing += dt * tumble;
+            } else {
+                let spin = e.kind.spec().spin;
+                // Winding up spins faster, part of the tell.
+                e.spin += dt * spin * if e.act == Act::Windup { 3.5 } else { 1.0 };
+                let turn = (dir.angle() - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;
+                e.facing += turn * (1.0 - (-6.0 * dt).exp());
+            }
+            e.stun = (e.stun - dt).max(0.0);
         }
 
         // Push overlapping enemies apart so packs spread into readable shapes.
