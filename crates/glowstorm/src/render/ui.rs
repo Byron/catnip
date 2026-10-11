@@ -78,7 +78,7 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · mouse aim · left-click fire · tap right-click / Space to evade",
+                    "WASD move · mouse aim · left-click fire · 1/2 gun/sniper · tap right-click / Space to evade",
                 );
                 text.line(
                     r + 1,
@@ -354,6 +354,7 @@ impl Text<'_> {
             let _ = write!(left, "  \x1b[38;2;255;61;240m×{}", game.multiplier());
         }
         let _ = write!(left, "  \x1b[38;2;61;242;255mWAVE {}", game.wave);
+        let _ = write!(left, "  \x1b[38;2;255;225;77m{}", p.weapon.name());
         if game.power() > 1.0 {
             let _ = write!(
                 left,

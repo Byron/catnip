@@ -3,6 +3,195 @@
 use super::*;
 
 #[test]
+fn main_weapon_switching_keeps_cooldown_and_menu_number_keys() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    let select = Input {
+        pressed: vec![KeyCode::Char('2')],
+        ..Input::default()
+    };
+    assert_eq!(game.player.weapon, Weapon::Default);
+    game.update(0.0, &select, &view);
+    assert_eq!(game.difficulty, Difficulty::Hard);
+    assert_eq!(game.player.weapon, Weapon::Default);
+    game.state = State::Playing;
+    game.update(0.0, &select, &view);
+    assert_eq!(game.player.weapon, Weapon::Sniper);
+    let fire = Input {
+        fire: true,
+        ..Input::default()
+    };
+    game.update_player(0.0, &fire, &view);
+    assert_eq!(game.bullets.len(), 1);
+    let round = &game.bullets[0];
+    assert_eq!(round.weapon, Weapon::Sniper);
+    assert!((round.vel.len() - 5000.0).abs() < 0.01);
+    assert_eq!(round.damage, 6.0);
+    assert_eq!(round.range, 1800.0);
+    assert!(!round.faded());
+    assert_eq!(game.player.fire_cd, 0.5);
+    game.update(
+        0.0,
+        &Input {
+            pressed: vec![KeyCode::Char('1')],
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.player.weapon, Weapon::Default);
+    assert_eq!(game.bullets.len(), 1, "switching does not bypass cooldown");
+    game.update_player(0.25, &fire, &view);
+    assert_eq!(game.bullets.len(), 1);
+    game.update_player(0.25, &fire, &view);
+    assert_eq!(game.bullets.len(), 2);
+    assert_eq!(game.bullets[0].weapon, Weapon::Sniper);
+    assert_eq!(game.bullets[1].weapon, Weapon::Default);
+    game.start();
+    assert_eq!(game.player.weapon, Weapon::Default);
+}
+
+#[test]
+fn sniper_pierces_in_order_once_per_ship_and_loses_power() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for pierce in 0..=2 {
+            let mut game = Game::new(7);
+            game.player.weapon = Weapon::Sniper;
+            game.player.aim = 0.0;
+            game.player.upgrades.add(Upgrade::Range);
+            for _ in 0..pierce {
+                game.player.upgrades.add(Upgrade::Pierce);
+            }
+            let at = game.player.pos;
+            // Reversed storage order, with overlapping circles to catch repeated hits.
+            for x in [140.0, 90.0, 40.0] {
+                game.add_enemy(Kind::Tank, at + v2(x, 0.0), V2::default(), true);
+                game.enemies.last_mut().unwrap().hp = 100.0;
+            }
+            game.update_player(
+                0.0,
+                &Input {
+                    fire: true,
+                    ..Input::default()
+                },
+                &view,
+            );
+            game.bullets[0].vel = v2(5000.0, 0.0);
+            for _ in 0..fps / 10 {
+                game.update_bullets(1.0 / fps as f32);
+            }
+            let retained = 0.65 + 0.1 * pierce as f32;
+            for (i, e) in game.enemies.iter().rev().enumerate() {
+                assert!(
+                    (100.0 - e.hp - 6.0 * retained.powi(i as i32)).abs() < 1e-4,
+                    "fps {fps}, pierce {pierce}, target {i}"
+                );
+            }
+            assert_eq!(game.bullets.len(), 1);
+            assert!(game.bullets[0].faded());
+            for _ in 0..fps {
+                game.update_bullets(1.0 / fps as f32);
+            }
+            assert!(game.bullets.is_empty());
+        }
+    }
+}
+
+#[test]
+fn sniper_pierces_a_boss_in_order_and_stops_at_enemy_bullets() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.player.weapon = Weapon::Sniper;
+    game.player.aim = 0.0;
+    game.player.upgrades.add(Upgrade::Range);
+    let at = game.player.pos;
+    game.spawn_boss();
+    let boss = game.boss.as_mut().unwrap();
+    boss.pos = at + v2(180.0, 0.0);
+    boss.entering = 0.0;
+    boss.hp = 100.0;
+    for x in [320.0, 65.0] {
+        game.add_enemy(Kind::Tank, at + v2(x, 0.0), V2::default(), true);
+        game.enemies.last_mut().unwrap().hp = 100.0;
+    }
+    game.add_orb(at + v2(260.0, 0.0), V2::default());
+    game.update_player(
+        0.0,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    game.bullets[0].vel = v2(5000.0, 0.0);
+    game.update_bullets(0.1);
+    assert!((game.enemies[1].hp - 94.0).abs() < 1e-4);
+    assert!((game.boss.as_ref().unwrap().hp - 96.1).abs() < 1e-4);
+    assert_eq!(game.enemies[0].hp, 100.0);
+    assert!(game.orbs.is_empty() && game.bullets.is_empty());
+}
+
+#[test]
+fn sniper_uses_upgrades_and_waits_for_shared_weapon_heat_and_barrages() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.player.weapon = Weapon::Sniper;
+    game.player.upgrades.add(Upgrade::Spread);
+    game.player.upgrades.add(Upgrade::Range);
+    game.player.upgrades.add(Upgrade::Range);
+    game.player.upgrades.add(Upgrade::Coolant);
+    game.player.rapid_t = 1.0;
+    let fire = Input {
+        fire: true,
+        ..Input::default()
+    };
+    game.update_player(0.0, &fire, &view);
+    assert_eq!(game.bullets.len(), 3);
+    assert!(
+        game.bullets
+            .iter()
+            .all(|b| b.weapon == Weapon::Sniper && !b.falloff && b.range == 2250.0)
+    );
+    assert_eq!(game.player.fire_cd, 0.25);
+    assert!((game.player.heat - 0.075 * 0.75 * 1.5).abs() < 1e-5);
+    game.player.fire_cd = 0.0;
+    game.player.heat = 1.0;
+    game.player.overheated = true;
+    game.update_player(0.01, &fire, &view);
+    assert_eq!(game.bullets.len(), 3);
+    game.player.overheated = false;
+    game.player.heat = 0.0;
+    game.update_player(
+        0.1,
+        &Input {
+            charge: true,
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.bullets.len(), 3);
+    game.update_player(0.0, &fire, &view);
+    assert!(game.gatling.is_some());
+    game.player.fire_cd = 0.0;
+    game.update_player(0.01, &fire, &view);
+    assert_eq!(game.bullets.len(), 3);
+}
+
+#[test]
 fn taps_roll_forward_and_holding_charges_a_forward_star_laser() {
     let view = View {
         scale: 1.0,
@@ -806,7 +995,8 @@ fn bullets_intercept_orbs_only_when_their_cores_meet_at_the_same_time() {
             range: BULLET_RANGE,
             damage: 1.0,
             pierce: 0,
-            last_hit: 0,
+            hit_ids: Vec::new(),
+            weapon: Weapon::Default,
             falloff: true,
         });
         game.orbs.push(Orb {
@@ -891,7 +1081,8 @@ fn interceptions_respect_enemy_and_boss_order_and_piercing() {
             range: BULLET_RANGE,
             damage: 1.0,
             pierce,
-            last_hit: 0,
+            hit_ids: Vec::new(),
+            weapon: Weapon::Default,
             falloff: true,
         });
         let (target_x, orb_x) = if orb_first {
@@ -969,7 +1160,8 @@ fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
             range: if wall { BULLET_RANGE } else { 50.0 },
             damage: 1.0,
             pierce: 0,
-            last_hit: 0,
+            hit_ids: Vec::new(),
+            weapon: Weapon::Default,
             falloff: true,
         });
         game.add_orb(
@@ -1000,7 +1192,8 @@ fn an_orbs_final_sweep_can_be_intercepted_before_it_leaves_or_expires() {
             range: BULLET_RANGE,
             damage: 1.0,
             pierce: 0,
-            last_hit: 0,
+            hit_ids: Vec::new(),
+            weapon: Weapon::Default,
             falloff: true,
         });
         game.add_orb(v2(360.0, 300.0), vel);
@@ -1586,7 +1779,8 @@ fn piercing_bullet_hits_two_enemies_in_a_line() {
         range: BULLET_RANGE,
         damage: 1.0,
         pierce: 1,
-        last_hit: 0,
+        hit_ids: Vec::new(),
+        weapon: Weapon::Default,
         falloff: true,
     });
     for _ in 0..12 {
@@ -1746,6 +1940,22 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
     game.state = State::Playing;
     game.player.spin = None;
     draw(&game);
+    game.player.weapon = Weapon::Sniper;
+    game.player.fire_cd = 0.0;
+    game.player.heat = 0.0;
+    game.player.overheated = false;
+    game.update_player(
+        0.0,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    draw(&game);
+    game.bullets.last_mut().unwrap().hit_ids.push(999);
+    draw(&game);
+    game.player.weapon = Weapon::Default;
     for charge in [0.1, 0.5, 0.95] {
         game.player.charge = charge;
         game.player.heat = charge;

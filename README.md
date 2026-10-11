@@ -46,6 +46,7 @@ synthesis, audio initialization, and playback when comparing frame rates.
 | WASD | move |
 | mouse | aim |
 | hold left click | fire |
+| 1 / 2 | select default gun / sniper |
 | hold middle click / E, then release | charge and release a gatling barrage |
 | tap right click / Space / R | barrel roll |
 | hold right click / Space / R, then release | charge a star-laser spin |
@@ -67,6 +68,13 @@ hearts and faster, more aggressive, more numerous enemies, and pay up to 2× the
 score.
 Enemies grow stronger every wave; you grow a little too, roughly 1.2× by the
 time they're twice as tough.
+
+The left-click weapon starts as **1 GUN**. Press **2** for the sniper: accurate,
+elongated shots travel four times faster, fire every half second, and start with
+six times the damage. Rounds pierce ships, including the boss, losing 35% of their
+remaining damage with each hit. Piercing upgrades reduce that loss by 10 percentage
+points per level; Spread, Long Range, Coolant, and Rapid still apply.
+Both main weapons share heat and firing cooldown. Press **1** to switch back.
 
 Hold middle mouse or E to charge the gatling gun (about 0.6 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges

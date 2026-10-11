@@ -2,6 +2,22 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Weapon {
+    #[default]
+    Default,
+    Sniper,
+}
+
+impl Weapon {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "1 GUN",
+            Self::Sniper => "2 SNIPER",
+        }
+    }
+}
+
 pub struct Player {
     pub pos: V2,
     pub vel: V2,
@@ -16,6 +32,7 @@ pub struct Player {
     pub max_hp: i32,
     pub dash_charges: u8,
     pub upgrades: Upgrades,
+    pub weapon: Weapon,
     /// Weapon heat, 0..1. Firing and charging add heat; at 1 the gun locks.
     pub heat: f32,
     pub overheated: bool,
@@ -97,6 +114,7 @@ impl Player {
             charge_spin: false,
             dash_charges: 1,
             upgrades: Upgrades::default(),
+            weapon: Weapon::Default,
         }
     }
 
@@ -388,7 +406,8 @@ impl Game {
         if firing && gatling.is_none() && !charging && !release && p.fire_cd <= 0.0 && !p.overheated
         {
             let rapid = p.rapid_t > 0.0;
-            let interval = if rapid { 0.055 } else { 0.11 };
+            let sniper = p.weapon == Weapon::Sniper;
+            let interval = if sniper { 0.5 } else { 0.11 } * if rapid { 0.5 } else { 1.0 };
             p.fire_cd = (p.fire_cd + interval).max(0.0);
             // Rapid fire shoots twice as often for the same heat per second.
             let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
@@ -397,19 +416,27 @@ impl Game {
                     HEAT_PER_SHOT / 2.0
                 } else {
                     HEAT_PER_SHOT
-                };
+                }
+                * if sniper { 3.0 } else { 1.0 };
             if p.heat >= 1.0 {
                 p.heat = 1.0;
                 p.overheated = true;
                 sfx.push(Sfx::Overheat);
             }
-            let spread = if rapid { 0.09 } else { 0.035 };
+            let spread = if sniper {
+                0.004
+            } else if rapid {
+                0.09
+            } else {
+                0.035
+            };
             let aim = p.aim + rng.range(-spread, spread);
             let dir = V2::from_angle(aim);
             let muzzle = p.pos + dir * 22.0;
             // Long Range: level 1 removes damage falloff, level 2 adds reach.
             let long_range = p.upgrades.level(Upgrade::Range);
-            let range = BULLET_RANGE * if long_range >= 2 { 1.25 } else { 1.0 };
+            let range = if sniper { 1800.0 } else { BULLET_RANGE }
+                * if long_range >= 2 { 1.25 } else { 1.0 };
             let falloff = long_range == 0;
             let pierce = p.upgrades.level(Upgrade::Pierce);
             // (angle offset, damage) per bullet of a shot.
@@ -426,20 +453,22 @@ impl Game {
             };
             for &(offset, damage) in pattern {
                 let d = V2::from_angle(aim + offset);
+                let damage = damage * if sniper { 6.0 } else { 1.0 };
                 bullets.push(Bullet {
                     pos: muzzle,
                     prev: p.pos,
-                    vel: d * BULLET_SPEED + p.vel * 0.25,
+                    vel: d * BULLET_SPEED * if sniper { 4.0 } else { 1.0 } + p.vel * 0.25,
                     traveled: 0.0,
                     range,
                     damage,
                     pierce,
-                    last_hit: 0,
+                    hit_ids: Vec::new(),
                     falloff,
+                    weapon: p.weapon,
                 });
                 p.vel += -d * 9.0 * damage;
             }
-            sfx.push(Sfx::Shoot);
+            sfx.push(if sniper { Sfx::Sniper } else { Sfx::Shoot });
             let vel = p.vel;
             for _ in 0..2 {
                 let v = vel + (dir * 260.0 + self.rng.dir() * 120.0);

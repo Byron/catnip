@@ -1,7 +1,7 @@
 //! Drawing the arena: every entity is a placement of the sprite atlas.
 
 use super::*;
-use crate::game::{CHARGE_BOOST_HEAT, SPIN_RADIUS, ray_exit, v2};
+use crate::game::{CHARGE_BOOST_HEAT, SPIN_RADIUS, Weapon, ray_exit, v2};
 
 /// Everything in the arena, back to front; the floor is placed by the caller.
 pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
@@ -100,7 +100,9 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     for b in &game.bullets {
         let k = art::angle_frame(b.vel.angle(), art::BULLET_ANGLES, TAU);
         // Dimmer once damage has mostly fallen off.
-        let frames = if b.traveled > b.range * 0.55 {
+        let frames = if b.weapon == Weapon::Sniper {
+            &sprites.sniper[usize::from(b.faded())]
+        } else if b.faded() {
             &sprites.bullet_faded
         } else {
             &sprites.bullet

@@ -316,6 +316,11 @@ impl Game {
                 }
             }
             State::Playing => {
+                if input.hit(&[KeyCode::Char('1')]) {
+                    self.player.weapon = Weapon::Default;
+                } else if input.hit(&[KeyCode::Char('2')]) {
+                    self.player.weapon = Weapon::Sniper;
+                }
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
                     self.pause();
                     return;

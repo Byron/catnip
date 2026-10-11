@@ -14,13 +14,19 @@ pub struct Bullet {
     pub(super) damage: f32,
     /// Enemies it can still pass through.
     pub(super) pierce: u8,
-    /// Last enemy hit, so a piercing bullet doesn't hit it twice.
-    pub(super) last_hit: u32,
+    /// Ships already pierced; 0 is the boss, enemy ids start at 1.
+    pub(super) hit_ids: Vec<u32>,
     /// Loses damage with distance (off with Long Range).
     pub(super) falloff: bool,
+    pub weapon: Weapon,
 }
 
 impl Bullet {
+    pub fn faded(&self) -> bool {
+        self.traveled > self.range * 0.55
+            || (self.weapon == Weapon::Sniper && !self.hit_ids.is_empty())
+    }
+
     /// Damage multiplier from distance flown and the shot's spread share.
     fn strength(&self) -> f32 {
         let range = if self.falloff {
@@ -102,8 +108,9 @@ impl Game {
                     range: gun.range,
                     damage,
                     pierce,
-                    last_hit: 0,
+                    hit_ids: Vec::new(),
                     falloff,
+                    weapon: Weapon::Default,
                 });
                 self.player.vel += -d * 3.0 * damage;
             }
@@ -280,8 +287,9 @@ impl Game {
                 range: BULLET_RANGE,
                 damage,
                 pierce: self.player.upgrades.level(Upgrade::Pierce),
-                last_hit: 0,
+                hit_ids: Vec::new(),
                 falloff: false,
+                weapon: Weapon::Default,
             });
         }
         for pos in reflected_at {
@@ -377,22 +385,43 @@ impl Game {
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             let boss_hit = boss
                 .as_ref()
+                .filter(|_| !b.hit_ids.contains(&0))
                 .and_then(|boss| segment_hit(boss.pos, b.prev, b.pos, BOSS_RADIUS + 5.0));
-            let barrier = interception
-                .map_or(1.0, |(_, t)| t)
-                .min(boss_hit.unwrap_or(1.0));
+            let barrier = interception.map_or(1.0, |(_, t)| t);
             let mut targets: Vec<_> = enemies
                 .iter()
                 .enumerate()
-                .filter(|(_, e)| e.hp > 0.0 && e.id != b.last_hit)
+                .filter(|(_, e)| e.hp > 0.0 && !b.hit_ids.contains(&e.id))
                 .filter_map(|(i, e)| {
                     segment_hit(e.pos, b.prev, b.pos, e.kind.radius() + 5.0)
                         .filter(|t| *t <= barrier)
-                        .map(|t| (i, t))
+                        .map(|t| (Some(i), t))
                 })
                 .collect();
+            if let Some(t) = boss_hit.filter(|t| *t <= barrier) {
+                targets.push((None, t));
+            }
             targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
             for (i, _) in targets {
+                let Some(i) = i else {
+                    let boss = boss.as_mut().unwrap();
+                    let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
+                    let damage = if boss.entering > 0.0 {
+                        0.0
+                    } else {
+                        b.strength() * power
+                    };
+                    boss.hp -= damage;
+                    boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
+                    boss.flash = 0.05;
+                    hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
+                    if b.weapon != Weapon::Sniper || boss.entering > 0.0 {
+                        return false;
+                    }
+                    b.hit_ids.push(0);
+                    b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
+                    continue;
+                };
                 let e = &mut enemies[i];
                 let damage = b.strength() * power;
                 e.hp -= damage;
@@ -405,27 +434,14 @@ impl Game {
                     e.kind.hue(),
                     damage,
                 ));
-                if b.pierce == 0 {
+                if b.weapon == Weapon::Sniper {
+                    b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
+                } else if b.pierce == 0 {
                     return false;
-                }
-                b.pierce -= 1;
-                b.last_hit = e.id;
-            }
-            if boss_hit.is_some_and(|t| t <= barrier)
-                && let Some(boss) = boss.as_mut()
-            {
-                let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
-                // Invulnerable while flying in: the shot just sparks off.
-                let damage = if boss.entering > 0.0 {
-                    0.0
                 } else {
-                    b.strength() * power
-                };
-                boss.hp -= damage;
-                boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
-                boss.flash = 0.05;
-                hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
-                return false;
+                    b.pierce -= 1;
+                }
+                b.hit_ids.push(e.id);
             }
             if let Some((i, t)) = interception {
                 let at = b.prev + (b.pos - b.prev) * t;
