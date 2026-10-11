@@ -108,7 +108,9 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     for b in &game.bullets {
         let k = art::angle_frame(b.vel.angle(), art::BULLET_ANGLES, TAU);
         // Dimmer once damage has mostly fallen off.
-        let frames = if b.weapon == Weapon::Sniper {
+        let frames = if b.weapon == Weapon::Rocket {
+            &sprites.rocket
+        } else if b.weapon == Weapon::Sniper {
             &sprites.sniper[usize::from(b.faded())]
         } else if b.faded() {
             &sprites.bullet_faded
@@ -116,6 +118,16 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             &sprites.bullet
         };
         draw.sprite(frames[k], b.pos, Z_BULLETS);
+        if b.weapon == Weapon::Rocket {
+            for i in 1..=4 {
+                let at = b.pos - b.vel.norm() * (15.0 + i as f32 * 6.0);
+                draw.sprite(
+                    sprites.spark[Hue::Orange.index()][usize::from(i < 3)],
+                    at,
+                    Z_BULLETS - 1,
+                );
+            }
+        }
     }
 
     if let Some(gun) = &game.gatling {

@@ -320,6 +320,8 @@ impl Game {
                     self.player.weapon = Weapon::Default;
                 } else if input.hit(&[KeyCode::Char('2')]) {
                     self.player.weapon = Weapon::Sniper;
+                } else if input.hit(&[KeyCode::Char('3')]) {
+                    self.player.weapon = Weapon::Rocket;
                 }
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
                     self.pause();

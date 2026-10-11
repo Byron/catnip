@@ -10,6 +10,7 @@ pub struct Sprites {
     pub bullet: Vec<Frame>,
     /// Elongated sniper rounds: fresh and weakened after piercing.
     pub sniper: [Vec<Frame>; 2],
+    pub rocket: Vec<Frame>,
     /// Charging muzzle: normal and timing bonus.
     pub charged: [Vec<Frame>; 2],
     pub laser: [Vec<Frame>; 5],
@@ -102,6 +103,30 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
             })
             .collect()
     });
+
+    let rocket = (0..BULLET_ANGLES)
+        .map(|i| {
+            let angle = i as f32 * TAU / BULLET_ANGLES as f32;
+            atlas.add(neon_sprite(s, 17.0, Hue::Orange.color(), |l, b, c, r| {
+                let body = rotate(
+                    &[
+                        (-0.55, -0.22),
+                        (0.35, -0.22),
+                        (0.95, 0.0),
+                        (0.35, 0.22),
+                        (-0.55, 0.22),
+                    ],
+                    angle,
+                    c,
+                    r,
+                );
+                b.fill_polygon(&body, 1.0);
+                l.stroke_polygon(&body, line(2.2));
+                let flame = rotate(&[(-0.5, 0.0), (-1.0, 0.0)], angle, c, r);
+                l.line(flame[0], flame[1], line(4.0));
+            }))
+        })
+        .collect();
 
     let charged = [(Hue::Cyan, 1.0), (Hue::White, 1.0)].map(|(hue, alpha)| {
         (0..9)
@@ -359,6 +384,7 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         ghost,
         bullet,
         sniper,
+        rocket,
         charged,
         laser,
         chaser,

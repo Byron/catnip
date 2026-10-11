@@ -47,7 +47,7 @@ synthesis, audio initialization, and playback when comparing frame rates.
 | Shift + WASD | heat-powered thrust: stronger forward, weaker reverse |
 | mouse | aim |
 | hold left click | fire |
-| 1 / 2 | select default gun / sniper |
+| 1 / 2 / 3 | select default gun / sniper / rocket blaster |
 | hold middle click / E, then release | charge and release a gatling barrage |
 | tap right click / Space / R | barrel roll |
 | hold right click / Space / R, then release | charge a star-laser spin |
@@ -90,6 +90,18 @@ tumble with yellow sparks before recovering. A full sniper hit stuns for about
 briefly stagger enemies. Bosses resist other weaker hits and only stagger briefly,
 pausing their attacks.
 Repeated heavy hits refresh the stun rather than adding durations together.
+
+Press **3** for the rocket blaster: slow rockets explode on ships, enemy bullets,
+walls, or at the end of their range. A blast reaches 200 units, deals splash damage,
+clears enemy bullets, and pushes ships outward. Enemies caught in it are stunned
+for 2–3 seconds; bosses stagger for up to a second. Middle mouse / E charges a
+fan of 1–10 rockets, with more charge launching more rockets with stronger blasts.
+Charged rockets turn gently toward enemies ahead of them. The usual release bonus,
+overheat penalty, Coolant, and Long Range apply; normal fire also uses Spread and Rapid.
+Your ship loses a heart only when its center is strictly inside the inner half
+of the blast radius, with normal hit grace and evasion protection. The outer half
+pushes you without damage. Orange sparks outline the blast, with a smaller yellow
+ring marking the dangerous inner half.
 
 Hold Shift while moving along your aim direction to engage the rear rocket,
 giving about twice the forward speed. Moving backward engages two smaller front

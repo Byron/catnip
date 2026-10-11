@@ -3,6 +3,263 @@
 use super::*;
 
 #[test]
+fn rocket_slot_fires_slow_explosive_rounds_and_charge_scales_to_ten() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.update(
+        0.0,
+        &Input {
+            pressed: vec![KeyCode::Char('3')],
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.difficulty, Difficulty::Extreme);
+    assert_eq!(game.player.weapon, Weapon::Default);
+    game.state = State::Playing;
+    game.update(
+        0.0,
+        &Input {
+            pressed: vec![KeyCode::Char('3')],
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.player.weapon, Weapon::Rocket);
+    game.update_player(
+        0.0,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.bullets.len(), 1);
+    assert_eq!(game.bullets[0].damage, 22.0);
+    assert!((game.bullets[0].vel.len() - ROCKET_SPEED).abs() < 0.01);
+    assert!(!game.bullets[0].homing && !game.bullets[0].falloff);
+    assert_eq!(game.player.fire_cd, 0.65);
+    assert!((game.player.heat - 0.3).abs() < 1e-5);
+    for (charge, count, forced) in [
+        (0.01, 1, false),
+        (0.4, 4, false),
+        (0.95, 10, false),
+        (1.0, 10, true),
+    ] {
+        let mut game = Game::new(7);
+        game.player.weapon = Weapon::Rocket;
+        game.player.charge = charge;
+        game.player.heat = charge;
+        game.player.upgrades.add(Upgrade::Spread);
+        game.player.upgrades.add(Upgrade::Spread);
+        game.player.upgrades.add(Upgrade::Range);
+        game.player.upgrades.add(Upgrade::Range);
+        game.update_player(0.0, &Input::default(), &view);
+        assert_eq!(game.bullets.len(), count, "salvo stays capped with Spread");
+        let multiplier = if forced {
+            0.75
+        } else if charge >= 0.9 {
+            1.1
+        } else {
+            1.0
+        };
+        assert!(game.bullets.iter().all(|b| b.weapon == Weapon::Rocket
+            && b.homing
+            && b.range == 1750.0
+            && (b.damage - (1.0 + 2.0 * charge) * 10.0 * multiplier).abs() < 1e-4));
+        assert!(game.gatling.is_none());
+        assert_eq!(game.player.overheated, forced);
+        assert_eq!(game.player.charge_blocked, forced);
+        assert_eq!(game.player.charge, 0.0);
+    }
+}
+
+#[test]
+fn charged_rockets_turn_gently_toward_targets_ahead_without_losing_speed() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for boss_target in [false, true] {
+            let mut game = Game::new(7);
+            game.player.pos = v2(300.0, 500.0);
+            game.player.weapon = Weapon::Rocket;
+            game.player.aim = 0.0;
+            game.player.charge = 0.01;
+            game.update_player(0.0, &Input::default(), &view);
+            if boss_target {
+                game.spawn_boss();
+                let b = game.boss.as_mut().unwrap();
+                b.pos = v2(1000.0, 900.0);
+                b.entering = 0.0;
+            } else {
+                game.add_enemy(Kind::Tank, v2(1000.0, 900.0), V2::default(), true);
+            }
+            game.add_enemy(Kind::Tank, v2(250.0, 400.0), V2::default(), false);
+            for _ in 0..fps / 10 {
+                game.update_bullets(1.0 / fps as f32);
+            }
+            let b = &game.bullets[0];
+            assert!(
+                b.vel.angle() > 0.06 && b.vel.angle() <= 0.081,
+                "gentle turn at {fps} fps"
+            );
+            assert!((b.vel.len() - ROCKET_SPEED).abs() < 0.01);
+            assert_eq!(b.weapon, Weapon::Rocket);
+        }
+    }
+}
+
+#[test]
+fn rocket_blast_damages_and_stuns_all_nearby_ships_with_radial_push() {
+    let mut game = Game::new(7);
+    let center = v2(700.0, 700.0);
+    for offset in [v2(-50.0, 0.0), v2(0.0, 170.0), v2(233.0, 0.0)] {
+        game.add_enemy(Kind::Tank, center + offset, V2::default(), true);
+        game.enemies.last_mut().unwrap().hp = 100.0;
+    }
+    game.spawn_boss();
+    let b = game.boss.as_mut().unwrap();
+    b.pos = center + v2(100.0, 0.0);
+    b.entering = 0.0;
+    b.hp = 100.0;
+    game.add_orb(center + v2(199.0, 0.0), V2::default());
+    game.add_orb(center + v2(201.0, 0.0), V2::default());
+    game.rocket_blast(center, 20.0);
+    assert!(game.enemies[0].hp < game.enemies[1].hp && game.enemies[1].hp < 100.0);
+    assert!(
+        game.enemies[..2]
+            .iter()
+            .all(|e| e.stun > 2.0 && e.stun <= 3.0 && e.act == Act::Recover)
+    );
+    assert!(game.enemies[0].impulse.x < -500.0 && game.enemies[1].impulse.y > 300.0);
+    assert_eq!(game.enemies[2].hp, 100.0);
+    assert_eq!(game.enemies[2].stun, 0.0);
+    let b = game.boss.as_ref().unwrap();
+    assert!(b.hp < 100.0 && b.stun > 0.7 && b.impulse.x > 300.0);
+    assert_eq!(game.orbs.len(), 1);
+    assert_eq!(game.particles.len(), 144);
+    game.boss.as_mut().unwrap().entering = 1.0;
+    let hp = game.boss.as_ref().unwrap().hp;
+    game.rocket_blast(center, 20.0);
+    assert_eq!(
+        game.boss.as_ref().unwrap().hp,
+        hp,
+        "boss entrance stays protected"
+    );
+    assert!(
+        game.enemies[0].stun <= 3.0,
+        "blast stuns refresh without stacking"
+    );
+}
+
+#[test]
+fn rocket_self_damage_uses_only_the_ship_center_inside_the_inner_half() {
+    for distance in [0.0, 99.9, 100.0, 100.1, 199.9, 200.0, 205.0] {
+        for protected in [false, true] {
+            let mut game = Game::new(7);
+            game.state = State::Playing;
+            game.player.pos = v2(700.0 + distance, 700.0);
+            game.player.invuln = if protected { 1.0 } else { 0.0 };
+            let hp = game.player.hp;
+            game.rocket_blast(v2(700.0, 700.0), 22.0);
+            assert_eq!(
+                game.player.hp,
+                hp - i32::from(distance < 100.0 && !protected),
+                "distance {distance}"
+            );
+            assert_eq!(game.player.vel.len() > 0.0, distance < 200.0);
+            if distance < 200.0 {
+                assert!(game.player.vel.x > 0.0);
+            }
+        }
+    }
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.player.hp = 1;
+    game.rocket_blast(game.player.pos, 22.0);
+    assert_eq!(game.state, State::Dying);
+    assert_eq!(game.player.hp, 0);
+}
+
+#[test]
+fn rockets_detonate_at_first_contact_or_expiry_and_damage_each_ship_once() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for obstacle in 0..4 {
+        let mut game = Game::new(7);
+        game.player.pos = v2(300.0, 500.0);
+        game.player.weapon = Weapon::Rocket;
+        game.player.aim = 0.0;
+        game.update_player(
+            0.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        game.bullets[0].vel = v2(ROCKET_SPEED, 0.0);
+        game.add_enemy(Kind::Tank, v2(500.0, 500.0), V2::default(), true);
+        game.enemies[0].hp = 100.0;
+        match obstacle {
+            0 => {}
+            1 => game.add_orb(v2(420.0, 500.0), V2::default()),
+            2 => game.arena_size.x = 460.0,
+            _ => game.bullets[0].range = 100.0,
+        }
+        game.update_bullets(0.4);
+        assert!(game.bullets.is_empty());
+        assert!(game.sfx.contains(&Sfx::BigExplode));
+        let blast_pos = game.particles.iter().find(|p| p.life == 0.55).unwrap().pos;
+        let expected_x = match obstacle {
+            0 => 463.0,
+            1 => 409.0,
+            2 => 460.0 - WALL,
+            _ => 422.0,
+        };
+        assert!((blast_pos.x - expected_x).abs() < 0.01);
+        let strength =
+            (1.0 - ((500.0 - expected_x).abs() - 32.0).max(0.0) / BLAST_RADIUS).clamp(0.0, 1.0);
+        assert!(
+            (game.enemies[0].hp - (100.0 - 22.0 * (0.3 + 0.7 * strength))).abs() < 1e-4,
+            "splash only, no duplicate direct damage"
+        );
+    }
+}
+
+#[test]
+fn rocket_salvos_freeze_when_paused_and_expire_with_bounded_effects() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.player.weapon = Weapon::Rocket;
+    game.player.charge = 0.95;
+    game.player.heat = 0.95;
+    game.update_player(0.0, &Input::default(), &view);
+    let pos = game.bullets[0].pos;
+    game.pause();
+    game.update(0.5, &Input::default(), &view);
+    assert_eq!(game.bullets.len(), 10);
+    assert_eq!(game.bullets[0].pos, pos);
+    for _ in 0..240 {
+        game.update_bullets(1.0 / 60.0);
+        game.update_effects(1.0 / 60.0);
+        assert!(game.particles.len() <= effects::MAX_PARTICLES);
+    }
+    assert!(game.bullets.is_empty() && game.particles.is_empty());
+}
+
+#[test]
 fn sniper_entry_and_exit_impacts_are_separate_and_exit_throws_more_debris() {
     for boss_target in [false, true] {
         for lethal in [false, true] {
@@ -33,6 +290,7 @@ fn sniper_entry_and_exit_impacts_are_separate_and_exit_throws_more_debris() {
                 pierce: 0,
                 hit_ids: Vec::new(),
                 exits: Vec::new(),
+                homing: false,
                 weapon: Weapon::Sniper,
                 falloff: false,
             });
@@ -94,6 +352,7 @@ fn sniper_exit_follows_deflection_inside_a_ship_and_stops_at_range() {
             pierce: 0,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Sniper,
             falloff: false,
         });
@@ -668,6 +927,7 @@ fn sniper_clears_enemy_bullets_and_continues_without_losing_speed_or_power() {
             pierce: 0,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Sniper,
             falloff: false,
         });
@@ -715,6 +975,7 @@ fn sniper_resweeps_multiple_deflections_and_only_hits_ships_on_its_new_path() {
         pierce: 0,
         hit_ids: Vec::new(),
         exits: Vec::new(),
+        homing: false,
         weapon: Weapon::Sniper,
         falloff: false,
     });
@@ -758,6 +1019,7 @@ fn sniper_deflected_sweep_tracks_moving_orbs_and_still_expires() {
                     pierce: 0,
                     hit_ids: Vec::new(),
                     exits: Vec::new(),
+                    homing: false,
                     weapon: Weapon::Sniper,
                     falloff: false,
                 });
@@ -1640,6 +1902,7 @@ fn bullets_intercept_orbs_only_when_their_cores_meet_at_the_same_time() {
             pierce: 0,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1727,6 +1990,7 @@ fn interceptions_respect_enemy_and_boss_order_and_piercing() {
             pierce,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1807,6 +2071,7 @@ fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
             pierce: 0,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1840,6 +2105,7 @@ fn an_orbs_final_sweep_can_be_intercepted_before_it_leaves_or_expires() {
             pierce: 0,
             hit_ids: Vec::new(),
             exits: Vec::new(),
+            homing: false,
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -2438,6 +2704,7 @@ fn piercing_bullet_hits_two_enemies_in_a_line() {
         pierce: 1,
         hit_ids: Vec::new(),
         exits: Vec::new(),
+        homing: false,
         weapon: Weapon::Default,
         falloff: true,
     });
@@ -2587,6 +2854,16 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         draw(&game);
     }
     game.player.thrust = 0.0;
+    game.player.weapon = Weapon::Rocket;
+    game.player.charge = 0.95;
+    game.player.heat = 0.95;
+    game.update_player(0.0, &Input::default(), &view);
+    draw(&game);
+    game.rocket_blast(game.player.pos + v2(300.0, 0.0), 22.0);
+    draw(&game);
+    game.bullets.clear();
+    game.player.weapon = Weapon::Default;
+    game.player.heat = 0.0;
     for e in &mut game.enemies {
         e.stagger(6.0);
     }

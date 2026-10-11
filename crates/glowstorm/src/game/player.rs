@@ -7,6 +7,7 @@ pub enum Weapon {
     #[default]
     Default,
     Sniper,
+    Rocket,
 }
 
 impl Weapon {
@@ -14,6 +15,7 @@ impl Weapon {
         match self {
             Self::Default => "1 GUN",
             Self::Sniper => "2 SNIPER",
+            Self::Rocket => "3 ROCKET",
         }
     }
 }
@@ -387,6 +389,33 @@ impl Game {
                 p.roll_hold = None;
                 p.charge_spin = false;
                 sfx.push(Sfx::Dash);
+            } else if p.weapon == Weapon::Rocket {
+                let count = (p.charge * 10.0).ceil().clamp(1.0, 10.0) as usize;
+                for i in 0..count {
+                    let angle = p.aim + (i as f32 - (count - 1) as f32 * 0.5) * 0.09;
+                    let dir = V2::from_angle(angle);
+                    bullets.push(Bullet {
+                        pos: p.pos + dir * 25.0,
+                        prev: p.pos,
+                        vel: dir * ROCKET_SPEED * if boosted { 1.35 } else { 1.0 },
+                        traveled: 0.0,
+                        range: ROCKET_RANGE
+                            * if p.upgrades.level(Upgrade::Range) >= 2 {
+                                1.25
+                            } else {
+                                1.0
+                            },
+                        damage: damage * 10.0,
+                        pierce: 0,
+                        hit_ids: Vec::new(),
+                        exits: Vec::new(),
+                        homing: true,
+                        falloff: false,
+                        weapon: Weapon::Rocket,
+                    });
+                    p.vel += -dir * 12.0;
+                }
+                sfx.push(Sfx::BossBlast);
             } else {
                 *gatling = Some(Gatling {
                     weapon: p.weapon,
@@ -425,7 +454,14 @@ impl Game {
         {
             let rapid = p.rapid_t > 0.0;
             let sniper = p.weapon == Weapon::Sniper;
-            let interval = if sniper { 0.5 } else { 0.11 } * if rapid { 0.5 } else { 1.0 };
+            let rocket = p.weapon == Weapon::Rocket;
+            let interval = if rocket {
+                0.65
+            } else if sniper {
+                0.5
+            } else {
+                0.11
+            } * if rapid { 0.5 } else { 1.0 };
             p.fire_cd = (p.fire_cd + interval).max(0.0);
             // Rapid fire shoots twice as often for the same heat per second.
             let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
@@ -435,7 +471,13 @@ impl Game {
                 } else {
                     HEAT_PER_SHOT
                 }
-                * if sniper { 3.0 } else { 1.0 };
+                * if rocket {
+                    4.0
+                } else if sniper {
+                    3.0
+                } else {
+                    1.0
+                };
             if p.heat >= 1.0 {
                 p.heat = 1.0;
                 p.overheated = true;
@@ -453,8 +495,13 @@ impl Game {
             let muzzle = p.pos + dir * 22.0;
             // Long Range: level 1 removes damage falloff, level 2 adds reach.
             let long_range = p.upgrades.level(Upgrade::Range);
-            let range = if sniper { 1800.0 } else { BULLET_RANGE }
-                * if long_range >= 2 { 1.25 } else { 1.0 };
+            let range = if rocket {
+                ROCKET_RANGE
+            } else if sniper {
+                1800.0
+            } else {
+                BULLET_RANGE
+            } * if long_range >= 2 { 1.25 } else { 1.0 };
             let falloff = long_range == 0;
             let pierce = p.upgrades.level(Upgrade::Pierce);
             // (angle offset, damage) per bullet of a shot.
@@ -471,24 +518,49 @@ impl Game {
             };
             for &(offset, damage) in pattern {
                 let d = V2::from_angle(aim + offset);
-                let recoil = damage * if sniper { 6.0 } else { 1.0 };
-                let damage = damage * if sniper { SNIPER_DAMAGE } else { 1.0 };
+                let recoil = damage
+                    * if rocket {
+                        8.0
+                    } else if sniper {
+                        6.0
+                    } else {
+                        1.0
+                    };
+                let damage = damage
+                    * if rocket {
+                        22.0
+                    } else if sniper {
+                        SNIPER_DAMAGE
+                    } else {
+                        1.0
+                    };
                 bullets.push(Bullet {
                     pos: muzzle,
                     prev: p.pos,
-                    vel: d * BULLET_SPEED * if sniper { 4.0 } else { 1.0 } + p.vel * 0.25,
+                    vel: d * if rocket {
+                        ROCKET_SPEED
+                    } else {
+                        BULLET_SPEED * if sniper { 4.0 } else { 1.0 }
+                    } + p.vel * 0.25,
                     traveled: 0.0,
                     range,
                     damage,
                     pierce,
                     hit_ids: Vec::new(),
                     exits: Vec::new(),
-                    falloff,
+                    homing: false,
+                    falloff: falloff && !rocket,
                     weapon: p.weapon,
                 });
                 p.vel += -d * 9.0 * recoil;
             }
-            sfx.push(if sniper { Sfx::Sniper } else { Sfx::Shoot });
+            sfx.push(if rocket {
+                Sfx::BossBlast
+            } else if sniper {
+                Sfx::Sniper
+            } else {
+                Sfx::Shoot
+            });
             let vel = p.vel;
             for _ in 0..2 {
                 let v = vel + (dir * 260.0 + self.rng.dir() * 120.0);

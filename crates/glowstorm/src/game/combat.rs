@@ -20,6 +20,7 @@ pub struct Bullet {
     /// Loses damage with distance (off with Long Range).
     pub(super) falloff: bool,
     pub weapon: Weapon,
+    pub(super) homing: bool,
 }
 
 pub(super) struct ExitImpact {
@@ -49,6 +50,9 @@ impl Bullet {
 
 pub(super) const BULLET_SPEED: f32 = 1250.0;
 pub(super) const SNIPER_DAMAGE: f32 = 18.0;
+pub(super) const ROCKET_SPEED: f32 = 700.0;
+pub(super) const ROCKET_RANGE: f32 = 1400.0;
+pub const BLAST_RADIUS: f32 = 200.0;
 
 /// Bullets fade out after this distance.
 pub const BULLET_RANGE: f32 = 800.0;
@@ -149,6 +153,7 @@ impl Game {
                     pierce,
                     hit_ids: Vec::new(),
                     exits: Vec::new(),
+                    homing: false,
                     falloff,
                     weapon: gun.weapon,
                 });
@@ -329,6 +334,7 @@ impl Game {
                 pierce: self.player.upgrades.level(Upgrade::Pierce),
                 hit_ids: Vec::new(),
                 exits: Vec::new(),
+                homing: false,
                 falloff: false,
                 weapon: Weapon::Default,
             });
@@ -381,6 +387,7 @@ impl Game {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();
         let mut exits = Vec::new();
+        let mut blasts = Vec::new();
         let power = self.power();
         let size = self.arena_size;
         let enemies = &mut self.enemies;
@@ -388,6 +395,26 @@ impl Game {
         let orbs = &mut self.orbs;
         let rng = &mut self.rng;
         self.bullets.retain_mut(|b| {
+            if b.homing {
+                let target = enemies
+                    .iter()
+                    .filter(|e| e.hp > 0.0)
+                    .map(|e| e.pos)
+                    .chain(
+                        boss.as_ref()
+                            .filter(|boss| boss.entering <= 0.0 && boss.hp > 0.0)
+                            .map(|boss| boss.pos),
+                    )
+                    .filter(|pos| (*pos - b.pos).norm().dot(b.vel.norm()) > 0.0)
+                    .min_by(|a, c| (*a - b.pos).len().total_cmp(&(*c - b.pos).len()));
+                if let Some(target) = target {
+                    let turn = ((target - b.pos).angle() - b.vel.angle() + TAU / 2.0)
+                        .rem_euclid(TAU)
+                        - TAU / 2.0;
+                    b.vel = V2::from_angle(b.vel.angle() + turn.clamp(-0.8 * dt, 0.8 * dt))
+                        * b.vel.len();
+                }
+            }
             let mut elapsed = 0.0;
             loop {
                 b.prev = b.pos;
@@ -451,6 +478,10 @@ impl Game {
                 }
                 targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
                 for (i, t) in targets {
+                    if b.weapon == Weapon::Rocket {
+                        blasts.push((b.prev + (end - b.prev) * t, b.damage * power));
+                        return false;
+                    }
                     let Some(i) = i else {
                         let boss = boss.as_mut().unwrap();
                         let at = b.prev + (end - b.prev) * t;
@@ -547,6 +578,10 @@ impl Game {
                 });
                 if let Some((i, t)) = interception {
                     orbs.swap_remove(i);
+                    if b.weapon == Weapon::Rocket {
+                        blasts.push((b.pos, b.damage * power));
+                        return false;
+                    }
                     hits.push((b.pos, b.vel, Hue::Red, 0.5));
                     if b.weapon != Weapon::Sniper {
                         return false;
@@ -563,10 +598,18 @@ impl Game {
                     || b.pos.x >= size.x - lo
                     || b.pos.y >= size.y - lo
                 {
+                    if b.weapon == Weapon::Rocket {
+                        blasts.push((b.pos, b.damage * power));
+                        return false;
+                    }
                     wall_hits.push(b.pos);
                     return false;
                 }
                 // A clipped step expires even if rounding leaves its endpoint short of the limit.
+                if b.weapon == Weapon::Rocket && (flight < 1.0 || b.traveled >= b.range) {
+                    blasts.push((b.pos, b.damage * power));
+                    return false;
+                }
                 return flight >= 1.0 && b.traveled < b.range;
             }
         });
@@ -608,11 +651,89 @@ impl Game {
             }
         }
 
+        for (pos, damage) in blasts {
+            self.rocket_blast(pos, damage);
+        }
         let (dead, alive): (Vec<_>, Vec<_>) = self.enemies.drain(..).partition(|e| e.hp <= 0.0);
         self.enemies = alive;
         for e in dead {
             self.kill(e, true);
         }
+    }
+
+    pub(super) fn rocket_blast(&mut self, pos: V2, damage: f32) {
+        let outward = |at: V2| {
+            let dir = (at - pos).norm();
+            if dir == V2::default() {
+                v2(1.0, 0.0)
+            } else {
+                dir
+            }
+        };
+        let falloff = |distance: f32| (1.0 - distance / BLAST_RADIUS).clamp(0.0, 1.0);
+        let distance = (self.player.pos - pos).len();
+        if self.state == State::Playing && distance < BLAST_RADIUS {
+            if distance < BLAST_RADIUS * 0.5 && self.player.invuln <= 0.0 && !self.player.dashing()
+            {
+                self.hurt_player(pos, false);
+            }
+            self.player.vel += outward(self.player.pos) * (300.0 + 600.0 * falloff(distance));
+            if self.player.vel.len() > 900.0 {
+                self.player.vel = self.player.vel.norm() * 900.0;
+            }
+        }
+        for e in &mut self.enemies {
+            let distance = ((e.pos - pos).len() - e.kind.radius()).max(0.0);
+            if e.hp > 0.0 && distance < BLAST_RADIUS {
+                let strength = falloff(distance);
+                e.hp -= damage * (0.3 + 0.7 * strength);
+                e.stagger(6.0);
+                e.stun = e.stun.max(2.0 + strength);
+                e.flash = 0.1;
+                e.impulse += outward(e.pos) * (300.0 + 600.0 * strength);
+                if e.impulse.len() > 900.0 {
+                    e.impulse = e.impulse.norm() * 900.0;
+                }
+            }
+        }
+        if let Some(b) = &mut self.boss {
+            let distance = ((b.pos - pos).len() - BOSS_RADIUS).max(0.0);
+            if b.entering <= 0.0 && b.hp > 0.0 && distance < BLAST_RADIUS {
+                let strength = falloff(distance);
+                b.hp -= damage * (0.3 + 0.7 * strength);
+                b.stagger(6.0);
+                b.stun = b.stun.max(0.7 + 0.3 * strength);
+                b.flash = 0.1;
+                b.impulse += outward(b.pos) * (150.0 + 300.0 * strength);
+                if b.impulse.len() > 450.0 {
+                    b.impulse = b.impulse.norm() * 450.0;
+                }
+            }
+        }
+        self.orbs.retain(|o| (o.pos - pos).len() >= BLAST_RADIUS);
+        self.sfx.push(Sfx::BigExplode);
+        self.shake = (self.shake + 8.0).min(18.0);
+        // Sparks trace the actual blast radius, making the safe outer half readable.
+        for i in 0..48 {
+            let dir = V2::from_angle(i as f32 * TAU / 48.0);
+            self.emit(pos + dir * BLAST_RADIUS, dir * 90.0, 0.25, Hue::Orange, 1);
+            self.emit(
+                pos + dir * BLAST_RADIUS * 0.5,
+                dir * 60.0,
+                0.2,
+                Hue::Yellow,
+                0,
+            );
+            let speed = self.rng.range(120.0, 650.0);
+            self.emit(
+                pos,
+                dir * speed,
+                0.55,
+                if i % 3 == 0 { Hue::White } else { Hue::Orange },
+                2,
+            );
+        }
+        self.push_motes(pos, BLAST_RADIUS * 1.5, 400.0);
     }
 
     pub(super) fn kill(&mut self, e: Enemy, split: bool) {

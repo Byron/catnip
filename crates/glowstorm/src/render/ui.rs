@@ -78,7 +78,7 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · Shift thrust · mouse aim · left-click fire · 1/2 gun/sniper · tap right / Space evade",
+                    "WASD move · Shift thrust · mouse aim · left fire · 1/2/3 gun/sniper/rocket · right / Space evade",
                 );
                 text.line(
                     r + 1,
