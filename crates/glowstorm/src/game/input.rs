@@ -39,3 +39,16 @@ pub struct View {
     pub scale: f32,
     pub size: V2,
 }
+
+impl View {
+    pub fn new(win: catnip::term::Window, scale: f32) -> Self {
+        Self {
+            scale,
+            size: v2(win.width as f32 / scale, win.height as f32 / scale),
+        }
+    }
+
+    pub fn arena_size(&self) -> V2 {
+        v2(self.size.x.max(WORLD_W), self.size.y.max(WORLD_H))
+    }
+}

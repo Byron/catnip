@@ -34,7 +34,8 @@ fn main() {
     let started = Instant::now();
     let scale = art::scale_for(win);
     let (atlas, sprites) = art::build_sprites(scale);
-    let floor = art::build_floor(scale);
+    let arena = game::View::new(win, scale).arena_size();
+    let floor = art::build_floor(scale, arena.x, arena.y);
     let build_time = started.elapsed();
     // Before stderr goes to the log: a panic must restore the screen and
     // print where the user can see it.

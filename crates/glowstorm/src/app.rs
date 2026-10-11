@@ -12,8 +12,8 @@ use crossterm::event::{
 };
 
 use crate::{
-    art::Sprites,
-    game::{Game, Input, V2, View, v2},
+    art::{self, Sprites},
+    game::{Game, Input, View, v2},
     render::{ATLAS_ID, FLASH_ID, FLOOR_ID, Renderer, SHADE_ID, Stats, VOID_ID},
     sound::Audio,
 };
@@ -75,14 +75,17 @@ pub fn run(
         last = now;
         let started = Instant::now();
 
-        let view = View {
-            scale,
-            size: V2 {
-                x: win.width as f32 / scale,
-                y: win.height as f32 / scale,
-            },
-        };
+        let view = View::new(win, scale);
         game.update(dt, &input, &view);
+        let size = game.arena_size * scale;
+        if renderer.floor_size != (size.x as u32, size.y as u32) {
+            let floor = art::build_floor(scale, game.arena_size.x, game.arena_size.y);
+            let mut bytes = Vec::new();
+            kitty::upload(&mut bytes, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
+            out.write_all(&bytes)?;
+            kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
+            renderer.floor_size = (floor.w, floor.h);
+        }
         input.end_frame();
         play_sounds(&mut game, audio);
 

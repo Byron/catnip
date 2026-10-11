@@ -74,8 +74,8 @@ impl Game {
         for m in &mut self.motes {
             m.vel += (m.drift - m.vel) * settle;
             m.pos += m.vel * dt;
-            m.pos.x = m.pos.x.rem_euclid(WORLD_W);
-            m.pos.y = m.pos.y.rem_euclid(WORLD_H);
+            m.pos.x = m.pos.x.rem_euclid(self.arena_size.x);
+            m.pos.y = m.pos.y.rem_euclid(self.arena_size.y);
         }
     }
 

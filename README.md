@@ -82,13 +82,16 @@ shots lose up to a quarter of their damage at long range, so it pays to get
 close. Quick kills build a multiplier up to ×8 with a rising note for every
 kill in the chain; getting hit resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
 
+The arena is at least 2400 × 1500 game units. Larger terminals expand its width
+and height independently to fill the window, including when resized mid-run.
+
 ## How it works
 
 - All art is generated in code at start-up, at the window's real pixel size:
   one sprite atlas (rotations are pre-rendered, since kitty can't rotate an
   image) and one large arena floor.
-- Both are sent to kitty once through shared memory. After that, a frame only
-  contains placement commands.
+- Both are sent to kitty through shared memory. Frames contain placement commands;
+  the floor is rebuilt and uploaded again when resizing changes the arena size.
 - The camera scrolls by changing which part of the floor image is shown.
 - Input uses kitty's keyboard protocol (so held keys and key release work) and
   pixel-precise mouse reporting.

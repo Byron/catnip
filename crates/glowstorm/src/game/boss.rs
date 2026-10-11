@@ -44,6 +44,14 @@ pub struct Boss {
 }
 
 impl Boss {
+    pub(super) fn resize_arena(&mut self, size: V2) {
+        let r = BOSS_RADIUS + WALL;
+        self.home = self.home.clamp(v2(r, r), size - v2(r, r));
+        if self.entering <= 0.0 {
+            self.pos = self.pos.clamp(v2(r, r), size - v2(r, r));
+        }
+    }
+
     /// 1 above 60% health, 2 above 25%, then 3.
     pub fn phase(&self) -> u32 {
         let left = self.hp / self.max_hp;
@@ -69,7 +77,7 @@ impl Game {
         let max_hp = 130.0 * self.difficulty.tuning().boss_hp * growth;
         let pace = self.difficulty.tuning().enemy_speed;
         // Settle on the side of the arena away from the player.
-        let center = v2(WORLD_W / 2.0, WORLD_H / 2.0);
+        let center = self.arena_size * 0.5;
         let mut away = (center - self.player.pos).norm();
         if away == V2::default() {
             away = self.rng.dir();
@@ -154,13 +162,13 @@ impl Game {
         b.pos += b.impulse * dt;
         b.impulse = b.impulse * (-4.0 * dt).exp();
         let r = BOSS_RADIUS + WALL;
-        if b.pos.x < r || b.pos.x > WORLD_W - r {
-            b.pos.x = b.pos.x.clamp(r, WORLD_W - r);
+        if b.pos.x < r || b.pos.x > self.arena_size.x - r {
+            b.pos.x = b.pos.x.clamp(r, self.arena_size.x - r);
             b.vel.x = -b.vel.x;
             b.impulse.x = 0.0;
         }
-        if b.pos.y < r || b.pos.y > WORLD_H - r {
-            b.pos.y = b.pos.y.clamp(r, WORLD_H - r);
+        if b.pos.y < r || b.pos.y > self.arena_size.y - r {
+            b.pos.y = b.pos.y.clamp(r, self.arena_size.y - r);
             b.vel.y = -b.vel.y;
             b.impulse.y = 0.0;
         }

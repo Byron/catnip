@@ -37,7 +37,7 @@ pub const AURA_FRAMES: usize = 8;
 
 /// Pixels per logical unit. Follows the cell height (font size × display
 /// density) so the game looks the same size in any window and terminal; the
-/// window only decides how much of the arena is visible, within limits.
+/// window decides how much of the arena is visible and when it grows.
 /// Above this the sprite atlas (~200 MB at 2.2) and floor would push kitty
 /// past its 320 MB image quota; bigger windows just see more of the arena.
 pub const MAX_SCALE: f32 = 2.2;
@@ -52,9 +52,9 @@ pub fn scale_for(win: Window) -> f32 {
     {
         return forced.clamp(0.3, MAX_SCALE);
     }
-    // Show between 600 and 1300 units vertically, whatever the font size.
+    // Show at least 600 units vertically; larger windows reveal more arena.
     (cell_h as f32 / CELL_PX_PER_UNIT)
-        .clamp(height / 1300.0, height / 600.0)
+        .min(height / 600.0)
         .clamp(0.5, MAX_SCALE)
 }
 

@@ -51,6 +51,7 @@ pub enum State {
 
 pub struct Game {
     pub state: State,
+    pub arena_size: V2,
     pub player: Player,
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
@@ -132,6 +133,7 @@ impl Game {
         let best = load_best(best_path.as_ref());
         let mut game = Self {
             state: State::Title,
+            arena_size: v2(WORLD_W, WORLD_H),
             player: Player::new(Difficulty::Medium.hearts()),
             enemies: Vec::new(),
             bullets: Vec::new(),
@@ -190,10 +192,44 @@ impl Game {
         game
     }
 
+    fn resize_arena(&mut self, size: V2) {
+        if size == self.arena_size {
+            return;
+        }
+        for m in &mut self.motes {
+            m.pos.x *= size.x / self.arena_size.x;
+            m.pos.y *= size.y / self.arena_size.y;
+        }
+        self.arena_size = size;
+        self.snap_camera = true;
+        let r = WALL + PLAYER_RADIUS;
+        self.player.pos = if self.state == State::Title {
+            size * 0.5
+        } else {
+            self.player.pos.clamp(v2(r, r), size - v2(r, r))
+        };
+        for e in &mut self.enemies {
+            let r = WALL + e.kind.radius();
+            e.pos = e.pos.clamp(v2(r, r), size - v2(r, r));
+        }
+        for spawn in &mut self.spawns {
+            let r = WALL + spawn.kind.radius();
+            spawn.pos = spawn.pos.clamp(v2(r, r), size - v2(r, r));
+        }
+        for pickup in &mut self.pickups {
+            pickup.pos = pickup.pos.clamp(v2(r, r), size - v2(r, r));
+        }
+        if let Some(boss) = &mut self.boss {
+            boss.resize_arena(size);
+        }
+    }
+
     fn start(&mut self) {
         let difficulty = self.difficulty;
+        let arena_size = self.arena_size;
         let seed = self.rng.next();
         *self = Game::new(seed);
+        self.resize_arena(arena_size);
         self.set_difficulty(difficulty);
         self.state = State::Playing;
         self.snap_camera = true;
@@ -224,6 +260,10 @@ impl Game {
     }
 
     pub fn update(&mut self, dt: f32, input: &Input, view: &View) {
+        if self.arena_size != view.arena_size() {
+            self.resize_arena(view.arena_size());
+            self.follow(self.player.pos, view, 0.0, 0.0);
+        }
         self.flash = (self.flash - dt).max(0.0);
         let dt = if self.slowmo > 0.0 {
             self.slowmo -= dt;
@@ -262,8 +302,8 @@ impl Game {
                 // Slow drift over the arena behind the title.
                 let t = self.time * 0.15;
                 let target = v2(
-                    WORLD_W / 2.0 + t.cos() * 500.0,
-                    WORLD_H / 2.0 + (t * 1.3).sin() * 250.0,
+                    self.arena_size.x / 2.0 + t.cos() * 500.0,
+                    self.arena_size.y / 2.0 + (t * 1.3).sin() * 250.0,
                 );
                 self.follow(target, view, dt, 2.0);
                 self.update_effects(dt);
@@ -321,8 +361,10 @@ impl Game {
                     self.start();
                 } else if input.hit(&[KeyCode::Esc]) {
                     let difficulty = self.difficulty;
+                    let arena_size = self.arena_size;
                     let seed = self.rng.next();
                     *self = Game::new(seed);
+                    self.resize_arena(arena_size);
                     self.set_difficulty(difficulty);
                 }
             }
@@ -343,8 +385,8 @@ impl Game {
             }
         };
         let goal = v2(
-            clamp_axis(target.x, view.size.x, WORLD_W),
-            clamp_axis(target.y, view.size.y, WORLD_H),
+            clamp_axis(target.x, view.size.x, self.arena_size.x),
+            clamp_axis(target.y, view.size.y, self.arena_size.y),
         );
         if self.snap_camera {
             self.cam = goal;

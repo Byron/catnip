@@ -3,6 +3,85 @@
 use super::*;
 
 #[test]
+fn arena_grows_independently_and_survives_restarts() {
+    let mut game = Game::new(7);
+    let mut view = View {
+        scale: 1.0,
+        size: v2(3200.0, 900.0),
+    };
+    game.update(0.0, &Input::default(), &view);
+    assert_eq!(game.arena_size, v2(3200.0, WORLD_H));
+    assert_eq!(game.player.pos, game.arena_size * 0.5);
+    game.set_difficulty(Difficulty::Extreme);
+    assert_eq!(game.player.pos, game.arena_size * 0.5);
+
+    view.size = v2(3200.0, 2000.0);
+    game.update(0.0, &Input::default(), &view);
+    game.start();
+    assert_eq!(game.arena_size, view.size);
+    assert_eq!(game.player.pos, view.size * 0.5);
+
+    game.state = State::GameOver;
+    game.update(
+        0.0,
+        &Input {
+            pressed: vec![KeyCode::Esc],
+            ..Input::default()
+        },
+        &view,
+    );
+    assert_eq!(game.state, State::Title);
+    assert_eq!(game.arena_size, view.size);
+    assert_eq!(game.player.pos, view.size * 0.5);
+}
+
+#[test]
+fn shrinking_a_paused_arena_keeps_entities_reachable_and_snaps_camera() {
+    let mut game = Game::new(7);
+    game.resize_arena(v2(3200.0, 2000.0));
+    game.start();
+    game.state = State::Paused;
+    let corner = v2(3100.0, 1900.0);
+    game.player.pos = corner;
+    game.add_enemy(Kind::Tank, corner, V2::default(), false);
+    game.spawns.push(Spawn {
+        kind: Kind::Chaser,
+        pos: corner,
+        t: 0.9,
+        elite: false,
+    });
+    game.pickups.push(Pickup {
+        kind: PickupKind::Heart,
+        pos: corner,
+        life: 10.0,
+    });
+    game.spawn_boss();
+    let boss = game.boss.as_mut().unwrap();
+    boss.entering = 0.0;
+    boss.pos = corner;
+    game.cam = corner;
+
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    game.update(0.0, &Input::default(), &view);
+    assert_eq!(game.state, State::Paused);
+    assert_eq!(game.arena_size, v2(WORLD_W, WORLD_H));
+    for (pos, radius) in [
+        (game.player.pos, PLAYER_RADIUS),
+        (game.enemies[0].pos, Kind::Tank.radius()),
+        (game.spawns[0].pos, Kind::Chaser.radius()),
+        (game.pickups[0].pos, PLAYER_RADIUS),
+        (game.boss.as_ref().unwrap().pos, BOSS_RADIUS),
+    ] {
+        assert_eq!(pos, game.arena_size - v2(WALL + radius, WALL + radius));
+    }
+    assert_ne!(game.cam, corner);
+    assert!(!game.snap_camera);
+}
+
+#[test]
 fn fast_bullet_path_hits_enemy_between_frames() {
     // A 25-unit step jumps straight over a radius-10 enemy; the swept test must still catch it.
     assert!(segment_distance(v2(12.0, 0.0), v2(0.0, 0.0), v2(25.0, 0.0)) < 10.0);

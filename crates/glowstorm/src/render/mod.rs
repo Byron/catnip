@@ -61,7 +61,7 @@ pub struct Stats {
 pub struct Renderer {
     atlas: AtlasPlacer,
     floor: Placer,
-    floor_size: (u32, u32),
+    pub floor_size: (u32, u32),
     text_rows: Vec<u32>,
     dimmed: bool,
     flashing: bool,

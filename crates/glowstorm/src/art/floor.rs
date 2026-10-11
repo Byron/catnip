@@ -3,9 +3,9 @@
 use super::*;
 
 /// The arena floor: dark grid, faint noise, and a glowing wall around the edge.
-pub fn build_floor(s: f32) -> Image {
-    let w = (WORLD_W * s) as u32;
-    let h = (WORLD_H * s) as u32;
+pub fn build_floor(s: f32, width: f32, height: f32) -> Image {
+    let w = (width * s) as u32;
+    let h = (height * s) as u32;
     let mut img = Image::new(w, h);
     // 10+ megapixels: split rows across cores so start-up stays snappy.
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -21,7 +21,7 @@ pub fn build_floor(s: f32) -> Image {
                 for (i, px) in chunk.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let x = (i % w as usize) as f32;
                     let y = (first_row + i / w as usize) as f32;
-                    px.copy_from_slice(&floor_pixel(x, y, s));
+                    px.copy_from_slice(&floor_pixel(x, y, s, width, height));
                 }
             });
         }
@@ -29,13 +29,13 @@ pub fn build_floor(s: f32) -> Image {
     img
 }
 
-pub(super) fn floor_pixel(x: f32, y: f32, s: f32) -> [u8; 4] {
+pub(super) fn floor_pixel(x: f32, y: f32, s: f32, width: f32, height: f32) -> [u8; 4] {
     let wall = hex(0x9d4dff);
     let (u, v) = (x / s, y / s);
 
     // Base: deep navy, a little lighter towards the middle.
-    let dx = u / WORLD_W - 0.5;
-    let dy = v / WORLD_H - 0.5;
+    let dx = u / width - 0.5;
+    let dy = v / height - 0.5;
     let center = (1.0 - (dx * dx + dy * dy).sqrt() * 1.6).max(0.0);
     let mut c = [6.0 + 8.0 * center, 8.0 + 9.0 * center, 18.0 + 22.0 * center];
 
@@ -66,7 +66,7 @@ pub(super) fn floor_pixel(x: f32, y: f32, s: f32) -> [u8; 4] {
     add(&mut c, [1.0, 1.0, 1.0], (n - 0.5) * 5.0);
 
     // Arena wall: a bright line with a glow falling off inwards.
-    let edge = u.min(v).min(WORLD_W - u).min(WORLD_H - v);
+    let edge = u.min(v).min(width - u).min(height - v);
     let wall_line = (1.0 - ((edge - WALL * 0.5).abs() / 3.0)).clamp(0.0, 1.0);
     let wall_glow = (1.0 - edge / 70.0).max(0.0).powi(2);
     add(

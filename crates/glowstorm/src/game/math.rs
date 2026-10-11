@@ -15,6 +15,10 @@ pub const fn v2(x: f32, y: f32) -> V2 {
 }
 
 impl V2 {
+    pub fn clamp(self, min: V2, max: V2) -> V2 {
+        v2(self.x.clamp(min.x, max.x), self.y.clamp(min.y, max.y))
+    }
+
     pub fn len(self) -> f32 {
         self.x.hypot(self.y)
     }

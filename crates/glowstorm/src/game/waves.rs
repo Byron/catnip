@@ -132,8 +132,8 @@ impl Game {
         let mut pos = V2::default();
         for _ in 0..24 {
             pos = v2(
-                self.rng.range(margin, WORLD_W - margin),
-                self.rng.range(margin, WORLD_H - margin),
+                self.rng.range(margin, self.arena_size.x - margin),
+                self.rng.range(margin, self.arena_size.y - margin),
             );
             if (pos - self.player.pos).len() > 460.0 {
                 break;

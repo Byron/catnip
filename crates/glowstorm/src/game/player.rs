@@ -111,6 +111,7 @@ impl Game {
         // Half of the damage edge also goes into gun cooling.
         let cooling_boost = 1.0 + (self.power() - 1.0) / 2.0;
         let dash_cooldown = self.dash_cooldown();
+        let size = self.arena_size;
         let Self {
             player: p,
             sfx,
@@ -182,12 +183,12 @@ impl Game {
         }
         p.pos += p.vel * dt;
         let lo = WALL + PLAYER_RADIUS;
-        if p.pos.x < lo || p.pos.x > WORLD_W - lo {
-            p.pos.x = p.pos.x.clamp(lo, WORLD_W - lo);
+        if p.pos.x < lo || p.pos.x > size.x - lo {
+            p.pos.x = p.pos.x.clamp(lo, size.x - lo);
             p.vel.x = 0.0;
         }
-        if p.pos.y < lo || p.pos.y > WORLD_H - lo {
-            p.pos.y = p.pos.y.clamp(lo, WORLD_H - lo);
+        if p.pos.y < lo || p.pos.y > size.y - lo {
+            p.pos.y = p.pos.y.clamp(lo, size.y - lo);
             p.vel.y = 0.0;
         }
 

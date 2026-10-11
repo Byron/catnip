@@ -235,6 +235,7 @@ impl Game {
     }
 
     pub(super) fn update_enemies(&mut self, dt: f32) {
+        let size = self.arena_size;
         let target = self.player.pos;
         let target_vel = self.player.vel;
         let chasing = self.state == State::Playing;
@@ -390,13 +391,13 @@ impl Game {
             e.pos += (e.vel + e.impulse) * dt;
             e.impulse = e.impulse * (-4.0 * dt).exp();
             let r = e.kind.radius() + WALL;
-            if e.pos.x < r || e.pos.x > WORLD_W - r {
-                e.pos.x = e.pos.x.clamp(r, WORLD_W - r);
+            if e.pos.x < r || e.pos.x > size.x - r {
+                e.pos.x = e.pos.x.clamp(r, size.x - r);
                 e.vel.x = -e.vel.x;
                 e.impulse.x = 0.0;
             }
-            if e.pos.y < r || e.pos.y > WORLD_H - r {
-                e.pos.y = e.pos.y.clamp(r, WORLD_H - r);
+            if e.pos.y < r || e.pos.y > size.y - r {
+                e.pos.y = e.pos.y.clamp(r, size.y - r);
                 e.vel.y = -e.vel.y;
                 e.impulse.y = 0.0;
             }
@@ -470,8 +471,7 @@ impl Game {
             self.sfx.push(Sfx::Shock);
             self.push_motes(pos, 320.0, 260.0);
         }
-        let inside =
-            |p: V2| p.x > WALL && p.y > WALL && p.x < WORLD_W - WALL && p.y < WORLD_H - WALL;
+        let inside = |p: V2| p.x > WALL && p.y > WALL && p.x < size.x - WALL && p.y < size.y - WALL;
         self.orbs.retain_mut(|o| {
             o.pos += o.vel * dt;
             o.life -= dt;

@@ -119,6 +119,7 @@ impl Game {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();
         let power = self.power();
+        let size = self.arena_size;
         let enemies = &mut self.enemies;
         let boss = &mut self.boss;
         self.bullets.retain_mut(|b| {
@@ -164,7 +165,7 @@ impl Game {
                 return false;
             }
             let lo = WALL;
-            if b.pos.x < lo || b.pos.y < lo || b.pos.x > WORLD_W - lo || b.pos.y > WORLD_H - lo {
+            if b.pos.x < lo || b.pos.y < lo || b.pos.x > size.x - lo || b.pos.y > size.y - lo {
                 wall_hits.push(b.pos);
                 return false;
             }
