@@ -249,6 +249,8 @@ impl Game {
         if self.state == State::Playing {
             self.player.charge = 0.0;
             self.player.charge_blocked = true;
+            self.player.roll_hold = None;
+            self.player.charge_spin = false;
             self.state = State::Paused;
         }
     }
@@ -401,6 +403,9 @@ impl Game {
         self.update_enemies(dt);
         self.update_boss(dt);
         if self.state == State::Playing {
+            self.update_spin(dt);
+        }
+        if self.state == State::Playing {
             self.update_shields(dt);
             self.update_gatling(dt);
         }
@@ -417,6 +422,9 @@ impl Game {
             self.gatling = None;
             self.player.charge = 0.0;
             self.player.charge_blocked = true;
+            self.player.spin = None;
+            self.player.roll_hold = None;
+            self.player.charge_spin = false;
         }
         self.chain_t -= dt;
         if self.chain_t <= 0.0 {

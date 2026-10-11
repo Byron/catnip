@@ -3,6 +3,486 @@
 use super::*;
 
 #[test]
+fn taps_roll_forward_and_holding_charges_a_forward_star_laser() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for keyboard in [false, true] {
+        let mut game = Game::new(7);
+        let start = game.player.pos;
+        let press = Input {
+            dash: !keyboard,
+            spin: !keyboard,
+            held: if keyboard {
+                [KeyCode::Char(' '), KeyCode::Char('d')].into()
+            } else {
+                [KeyCode::Char('d')].into()
+            },
+            pressed: if keyboard {
+                vec![KeyCode::Char(' ')]
+            } else {
+                vec![]
+            },
+            ..Input::default()
+        };
+        game.update_player(0.05, &press, &view);
+        assert!(game.player.pos.x > start.x);
+        assert!(game.player.dashing() && game.player.spin.is_none());
+        game.update_player(0.05, &Input::default(), &view);
+        assert!(game.player.spin.is_none());
+        assert_eq!(game.player.charge, 0.0);
+        assert_eq!(game.player.dash_charges, 0);
+
+        let mut game = Game::new(7);
+        game.update_player(0.01, &press, &view);
+        let held = Input {
+            spin: !keyboard,
+            held: if keyboard {
+                [KeyCode::Char(' ')].into()
+            } else {
+                Default::default()
+            },
+            ..Input::default()
+        };
+        for _ in 0..80 {
+            game.update_player(0.01, &held, &view);
+        }
+        assert!(game.player.spin.is_none());
+        let charge = game.player.charge;
+        assert!(charge > 0.3 && charge < 0.4, "{charge}");
+        game.update_player(0.01, &Input::default(), &view);
+        let spin = game.player.spin.as_ref().unwrap();
+        assert_eq!(spin.charge, charge);
+        assert!(!spin.boosted);
+        assert!((spin.duration - (0.35 + 1.25 * charge)).abs() < 1e-5);
+        assert!(
+            game.player.vel.x > 0.0,
+            "offensive move follows evasion direction"
+        );
+        assert!(game.gatling.is_none());
+    }
+}
+
+#[test]
+fn star_charge_rewards_timing_penalizes_overheat_and_requires_release_to_rearm() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for forced in [false, true] {
+        let mut game = Game::new(7);
+        let held = Input {
+            spin: true,
+            ..Input::default()
+        };
+        game.update_player(
+            0.01,
+            &Input {
+                dash: true,
+                spin: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        for _ in 0..if forced { 210 } else { 185 } {
+            game.update_player(0.01, &held, &view);
+            if game.player.spin.is_some() {
+                break;
+            }
+        }
+        if !forced {
+            game.update_player(0.01, &Input::default(), &view);
+        }
+        let spin = game.player.spin.as_ref().unwrap();
+        assert_eq!(spin.boosted, !forced);
+        let multiplier = if forced { 0.75 } else { 1.1 };
+        assert!((spin.damage - (1.0 + 2.0 * spin.charge) * multiplier).abs() < 1e-5);
+        assert_eq!(game.player.overheated, forced);
+        if forced {
+            for _ in 0..250 {
+                game.update_player(0.01, &held, &view);
+                game.update_spin(0.01);
+            }
+            assert!(game.player.spin.is_none());
+            assert_eq!(game.player.charge, 0.0);
+            assert!(!game.player.overheated);
+            game.update_player(0.01, &Input::default(), &view);
+            game.update_player(
+                0.01,
+                &Input {
+                    dash: true,
+                    spin: true,
+                    ..Input::default()
+                },
+                &view,
+            );
+            assert!(game.player.dashing());
+        }
+    }
+}
+
+#[test]
+fn star_charge_honors_shared_heat_coolant_and_overheat_lock() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let held = Input {
+        spin: true,
+        ..Input::default()
+    };
+    for coolant in [false, true] {
+        let mut game = Game::new(7);
+        game.player.charge_spin = true;
+        if coolant {
+            game.player.upgrades.add(Upgrade::Coolant);
+        }
+        for _ in 0..190 {
+            game.update_player(0.01, &held, &view);
+        }
+        assert_eq!(game.player.spin.is_some(), !coolant);
+        if coolant {
+            assert!(game.player.heat < 0.8 && game.player.charge > 0.7);
+        }
+    }
+    let mut game = Game::new(7);
+    game.player.charge_spin = true;
+    game.player.heat = 0.95;
+    game.update_player(0.1, &held, &view);
+    assert!(game.player.spin.is_some());
+    assert!((game.player.spin.as_ref().unwrap().charge - 0.05).abs() < 1e-5);
+
+    let mut game = Game::new(7);
+    game.player.charge_spin = true;
+    game.player.heat = 1.0;
+    game.player.overheated = true;
+    game.update_player(0.1, &held, &view);
+    assert!(game.player.spin.is_none());
+    assert_eq!(game.player.charge, 0.0);
+}
+
+#[test]
+fn spinning_ship_is_immune_but_contact_damages_and_pushes_enemies_and_boss() {
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.player.vel = v2(-SPIN_SPEED, 0.0);
+    game.player.spin = Some(Spin {
+        life: 0.5,
+        active: 0.02,
+        fire_cd: 1.0,
+        ..Spin::new(0.0, false, 1.0, game.player.pos, 0.0)
+    });
+    let at = game.player.pos + v2(20.0, 0.0);
+    game.add_enemy(Kind::Tank, at, V2::default(), true);
+    game.spawn_boss();
+    let boss = game.boss.as_mut().unwrap();
+    boss.pos = at;
+    boss.entering = 0.0;
+    let (hp, boss_hp, player_hp) = (game.enemies[0].hp, boss.hp, game.player.hp);
+    game.update_spin(0.02);
+    game.player_collisions();
+    assert!(game.enemies[0].hp < hp - 3.0);
+    assert!(game.enemies[0].impulse.x > 100.0);
+    assert!(game.boss.as_ref().unwrap().hp < boss_hp - 3.0);
+    assert!(game.boss.as_ref().unwrap().impulse.x > 100.0);
+    assert_eq!(game.player.vel, v2(-SPIN_SPEED, 0.0));
+    assert_eq!(game.player.hp, player_hp);
+}
+
+#[test]
+fn spin_reflects_fast_bullets_as_friendly_shots_and_ignores_near_misses() {
+    for heavy in [false, true] {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        let at = game.player.pos;
+        game.player.spin = Some(Spin {
+            life: 0.5,
+            active: 0.1,
+            fire_cd: 1.0,
+            ..Spin::new(0.0, false, 1.0, at, 0.0)
+        });
+        game.add_orb(at + v2(100.0, 0.0), v2(-2000.0, 0.0));
+        game.orbs[0].heavy = heavy;
+        game.add_orb(at + v2(100.0, 1000.0), v2(-2000.0, 0.0));
+        game.update_enemies(0.1);
+        game.update_spin(0.1);
+        assert_eq!(game.orbs.len(), 1);
+        assert_eq!(game.bullets.len(), 1);
+        assert_eq!(game.bullets[0].vel, v2(BULLET_SPEED, 0.0));
+        assert_eq!(game.bullets[0].damage, if heavy { 6.0 } else { 3.0 });
+        game.add_enemy(Kind::Tank, at + v2(150.0, 0.0), V2::default(), true);
+        let hp = game.enemies[0].hp;
+        game.update_bullets(0.1);
+        assert!(game.enemies[0].hp < hp);
+        game.player_collisions();
+        assert_eq!(game.player.hp, game.player.max_hp);
+    }
+}
+
+#[test]
+fn star_beams_destroy_crossing_bullets_at_range_but_leave_gaps_and_near_misses() {
+    for (offset, crossing, hit) in [
+        (v2(300.0, 0.0), true, true),
+        (v2(300.0, 0.0), false, true),
+        (v2(300.0, 15.1), false, false),
+        (v2(250.0, 100.0), false, false),
+        (v2(700.0, 0.0), false, true),
+    ] {
+        let mut game = Game::new(7);
+        let at = game.player.pos;
+        game.player.spin = Some(Spin {
+            active: 0.001,
+            ..Spin::new(1.0, false, 1.0, at, 0.0)
+        });
+        game.add_orb(at + offset, V2::default());
+        if crossing {
+            game.orbs[0].prev += v2(0.0, -30.0);
+            game.orbs[0].pos += v2(0.0, 30.0);
+        }
+        game.update_spin(0.001);
+        assert_eq!(game.orbs.is_empty(), hit, "{offset:?}, crossing={crossing}");
+        assert!(
+            game.bullets.is_empty(),
+            "outer beam contacts destroy, rather than reflect"
+        );
+    }
+}
+
+#[test]
+fn star_laser_fades_and_damage_stays_similar_at_different_frame_rates() {
+    let mut totals = Vec::new();
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        let mut game = Game::new(7);
+        game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+        let width = game.player.spin.as_ref().unwrap().width();
+        game.add_enemy(
+            Kind::Tank,
+            game.player.pos + v2(250.0, 0.0),
+            V2::default(),
+            true,
+        );
+        game.enemies[0].hp = 1000.0;
+        for _ in 0..fps {
+            game.update_player(1.0 / fps as f32, &Input::default(), &view);
+            game.update_spin(1.0 / fps as f32);
+        }
+        let spin = game.player.spin.as_ref().unwrap();
+        assert!(spin.width() < width);
+        assert!(spin.strength() < 0.4);
+        assert!(game.bullets.is_empty());
+        let damage = 1000.0 - game.enemies[0].hp;
+        assert!(damage > 25.0, "{damage} at {fps} fps");
+        totals.push(damage);
+    }
+    let min = totals.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = totals.iter().copied().fold(0.0, f32::max);
+    assert!(max < min * 1.1, "frame-rate damage spread: {totals:?}");
+}
+
+#[test]
+fn star_lasers_keep_full_reach_as_they_thin_and_rotate_slowly() {
+    for fading in [false, true] {
+        let mut game = Game::new(7);
+        game.resize_arena(v2(5000.0, 3500.0));
+        game.player.pos = v2(200.0, 200.0);
+        let mut spin = Spin::new(1.0, false, 1.0, game.player.pos, 0.0);
+        spin.active = 0.001;
+        if fading {
+            spin.life = 0.001;
+        }
+        assert!(spin.angular_speed() <= TAU * 0.5);
+        assert_eq!(spin.width() < 1.0, fading);
+        game.player.spin = Some(spin);
+        game.add_enemy(Kind::Tank, v2(4400.0, 200.0), V2::default(), true);
+        let hp = game.enemies[0].hp;
+        game.add_orb(v2(4400.0, 200.0), V2::default());
+        game.add_orb(v2(4400.0, 210.0), V2::default());
+        game.update_spin(0.001);
+        assert!(
+            game.enemies[0].hp < hp,
+            "distant ships take damage even at the end"
+        );
+        assert_eq!(
+            game.orbs.len(),
+            usize::from(fading),
+            "fading beam still reaches, but misses the offset shot"
+        );
+    }
+}
+
+#[test]
+fn landing_destroys_every_overlapping_ship_and_costs_exactly_one_heart() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for boss_target in [false, true] {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.player.vel = v2(-SPIN_SPEED, 0.0);
+        game.player.invuln = 10.0;
+        game.player.spin = Some(Spin {
+            life: 0.5,
+            active: 0.02,
+            fire_cd: 1.0,
+            ..Spin::new(0.0, false, 1.0, game.player.pos, 0.0)
+        });
+        let at = game.player.pos;
+        for offset in [-10.0, 10.0] {
+            game.add_enemy(Kind::Tank, at + v2(offset, 0.0), V2::default(), true);
+        }
+        if boss_target {
+            game.spawn_boss();
+            let boss = game.boss.as_mut().unwrap();
+            boss.pos = at;
+            boss.entering = 0.0;
+        }
+        let hp = game.player.hp;
+        game.player.spin.as_mut().unwrap().life = 0.0;
+        game.update_player(0.01, &Input::default(), &view);
+        game.update_spin(0.01);
+        game.update_bullets(0.01);
+        assert!(game.enemies.is_empty());
+        assert!(game.boss.is_none());
+        assert!(game.player.spin.is_none());
+        assert_eq!(game.player.hp, hp - 1);
+        assert_eq!(game.player.vel, v2(-SPIN_SPEED * 0.35, 0.0));
+        assert_eq!(game.player.pos, at);
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp - 1);
+    }
+}
+
+#[test]
+fn empty_landing_is_free_and_last_heart_landing_is_lethal() {
+    for overlap in [false, true] {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.dev.god = false;
+        game.player.hp = 1;
+        game.player.spin = Some(Spin {
+            life: 0.0,
+            active: 0.0,
+            fire_cd: 1.0,
+            ..Spin::new(0.0, false, 1.0, game.player.pos, 0.0)
+        });
+        if overlap {
+            game.add_enemy(Kind::Tank, game.player.pos, V2::default(), true);
+        }
+        game.update_spin(0.01);
+        game.update_bullets(0.01);
+        assert!(game.enemies.is_empty());
+        assert_eq!(game.player.hp, if overlap { 0 } else { 1 });
+        assert_eq!(
+            game.state,
+            if overlap {
+                State::Dying
+            } else {
+                State::Playing
+            }
+        );
+    }
+}
+
+#[test]
+fn star_charge_cancels_on_pause_and_active_star_freezes_without_recoil() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let held = Input {
+        spin: true,
+        ..Input::default()
+    };
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.update_player(
+        0.01,
+        &Input {
+            dash: true,
+            spin: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    for _ in 0..60 {
+        game.update_player(0.01, &held, &view);
+    }
+    assert!(game.player.charge > 0.0);
+    game.pause();
+    assert_eq!(game.player.charge, 0.0);
+    game.state = State::Playing;
+    game.update_player(0.01, &held, &view);
+    assert_eq!(game.player.charge, 0.0);
+    assert!(game.player.spin.is_none());
+
+    game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+    game.player.vel = v2(SPIN_SPEED, 0.0);
+    game.pause();
+    let life = game.player.spin.as_ref().unwrap().life;
+    let pos = game.player.pos;
+    game.update(0.5, &held, &view);
+    assert_eq!(game.player.spin.as_ref().unwrap().life, life);
+    assert_eq!(game.player.pos, pos);
+    game.state = State::Playing;
+    game.update_player(
+        0.02,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    game.update_spin(0.02);
+    assert_eq!(game.player.vel, v2(SPIN_SPEED, 0.0));
+    assert!(game.bullets.is_empty(), "star fires beams, not pellets");
+    game.state = State::Dying;
+    game.update_world(0.01);
+    assert!(game.player.spin.is_none());
+}
+
+#[test]
+fn automatic_spin_landing_clears_overlaps_and_charges_the_heart_in_world_update() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.state = State::Playing;
+    game.dev.god = false;
+    game.player.hp = 2;
+    game.player.spin = Some(Spin {
+        life: 0.005,
+        active: 0.0,
+        fire_cd: 1.0,
+        ..Spin::new(0.0, false, 1.0, game.player.pos, 0.0)
+    });
+    game.add_enemy(Kind::Tank, game.player.pos, V2::default(), true);
+    game.enemies[0].act = Act::Recover;
+    game.enemies[0].act_t = 1.0;
+    game.update(
+        0.01,
+        &Input {
+            spin: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    assert!(game.player.spin.is_none());
+    assert!(game.enemies.is_empty());
+    assert_eq!(game.player.hp, 1);
+    assert!(
+        game.pickups.is_empty(),
+        "crushed ships cannot immediately refund the heart"
+    );
+}
+
+#[test]
 fn arena_grows_independently_and_survives_restarts() {
     let mut game = Game::new(7);
     let mut view = View {
@@ -1000,6 +1480,22 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         assert!(!out.is_empty());
     };
     // Title, play, boss entrance and fight, pause, cards, death, game over.
+    draw(&game);
+    game.player.spin = Some(Spin::new(1.0, true, 1.1, game.player.pos, 0.0));
+    game.update_player(
+        0.05,
+        &Input {
+            spin: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    game.update_spin(0.05);
+    draw(&game);
+    game.state = State::Paused;
+    draw(&game);
+    game.state = State::Playing;
+    game.player.spin = None;
     draw(&game);
     for charge in [0.1, 0.5, 0.95] {
         game.player.charge = charge;

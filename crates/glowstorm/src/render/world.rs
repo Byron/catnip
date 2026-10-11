@@ -1,7 +1,7 @@
 //! Drawing the arena: every entity is a placement of the sprite atlas.
 
 use super::*;
-use crate::game::CHARGE_BOOST_HEAT;
+use crate::game::{CHARGE_BOOST_HEAT, SPIN_RADIUS};
 
 /// Everything in the arena, back to front; the floor is placed by the caller.
 pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
@@ -119,6 +119,14 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
 
     let p = &game.player;
+    if p.charge > 0.0 && p.charge_spin {
+        for i in 0..12 {
+            let at = p.pos
+                + V2::from_angle(game.time * 4.0 + i as f32 * TAU / 12.0)
+                    * (24.0 + p.charge * 30.0);
+            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER);
+        }
+    }
     if p.charge > 0.0 && matches!(game.state, State::Playing | State::Paused) {
         let boosted = p.heat >= CHARGE_BOOST_HEAT;
         let frames = &sprites.charged[usize::from(boosted)];
@@ -148,10 +156,55 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             );
         }
     }
-    let blink = p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
+    let blink = p.spin.is_none() && p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
     if matches!(game.state, State::Playing | State::Paused | State::Upgrade) && !blink {
-        let k = art::angle_frame(p.aim, art::PLAYER_ANGLES, TAU);
+        let k = art::angle_frame(p.angle(), art::PLAYER_ANGLES, TAU);
         draw.sprite(sprites.player[k], p.pos, Z_PLAYER);
+    }
+    if let Some(spin) = &p.spin {
+        let width = if spin.width() > 4.5 {
+            4
+        } else if spin.width() > 2.5 {
+            3
+        } else if spin.width() > 1.5 {
+            2
+        } else if spin.width() > 0.75 {
+            1
+        } else {
+            0
+        };
+        for i in 0..8 {
+            let angle = spin.laser_angle() + i as f32 * TAU / 8.0;
+            let dir = V2::from_angle(angle);
+            let frame = sprites.laser[width][art::angle_frame(angle, 128, TAU)];
+            let lo = draw.cam * (1.0 / draw.scale) - p.pos;
+            let hi = lo + draw.view_size;
+            let (mut enter, mut exit) = (0.0f32, f32::INFINITY);
+            for (dir, lo, hi) in [(dir.x, lo.x, hi.x), (dir.y, lo.y, hi.y)] {
+                if dir.abs() < 1e-6 {
+                    if lo > 0.0 || hi < 0.0 {
+                        exit = -1.0;
+                    }
+                } else {
+                    let (a, b) = (lo / dir, hi / dir);
+                    enter = enter.max(a.min(b));
+                    exit = exit.min(a.max(b));
+                }
+            }
+            let n = if exit >= enter {
+                ((exit - enter) / 12.0).ceil() as usize + 1
+            } else {
+                0
+            };
+            for j in 0..n {
+                let distance = enter + j as f32 * 12.0;
+                draw.sprite(frame, p.pos + dir * distance, Z_PLAYER - 1);
+            }
+        }
+        for i in 0..20 {
+            let at = p.pos + V2::from_angle(spin.angle + i as f32 * TAU / 20.0) * SPIN_RADIUS;
+            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER + 1);
+        }
     }
     if matches!(game.state, State::Playing | State::Paused | State::Upgrade) {
         for at in p.shield_orbs(game.time) {
@@ -281,6 +334,7 @@ pub(super) struct Draw<'a> {
     pub(super) placer: &'a mut AtlasPlacer,
     pub(super) scale: f32,
     pub(super) cam: V2,
+    pub(super) view_size: V2,
 }
 
 impl Draw<'_> {

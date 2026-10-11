@@ -348,7 +348,7 @@ impl Game {
         }
     }
 
-    fn boss_defeated(&mut self, b: Boss) {
+    pub(super) fn boss_defeated(&mut self, b: Boss) {
         let at = b.pos;
         self.slow(1.6, 0.25);
         self.flash = 0.3;
@@ -390,7 +390,7 @@ impl Game {
         }
         let minions = std::mem::take(&mut self.enemies);
         for e in minions {
-            self.kill(e);
+            self.kill(e, true);
         }
         self.spawns.clear();
 

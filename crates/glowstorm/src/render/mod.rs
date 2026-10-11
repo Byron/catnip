@@ -105,6 +105,10 @@ impl Renderer {
             placer: &mut self.atlas,
             scale,
             cam,
+            view_size: V2 {
+                x: win.width as f32 / scale,
+                y: win.height as f32 / scale,
+            },
         };
 
         let _ = write!(

@@ -78,18 +78,18 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · mouse aim · left-click fire · space / right-click dash",
+                    "WASD move · mouse aim · left-click fire · tap right-click / Space to evade",
                 );
                 text.line(
                     r + 1,
                     "38;2;200;210;255",
-                    "Hold middle-click / E to charge gatling · release, then sweep your aim",
+                    "Hold right-click / Space for star-laser · middle-click / E for gatling · release to fire",
                 );
                 if self.ghostty {
                     text.line(
-                        r + 1,
+                        r + 2,
                         "38;2;255;225;77",
-                        "Ghostty: dash with space, right-click while firing jams the trigger",
+                        "Ghostty: use Space if right-click interferes with firing",
                     );
                 }
                 // Difficulty menu: the selected one is yellow.
@@ -372,7 +372,9 @@ impl Text<'_> {
         } else {
             String::new()
         };
-        if p.dash_charges > 0 {
+        if p.spin.is_some() {
+            let _ = write!(left, "  \x1b[1;38;2;61;242;255mSPIN\x1b[0m");
+        } else if p.dash_charges > 0 {
             let _ = write!(left, "  \x1b[1;38;2;61;242;255mDASH{charges}\x1b[0m");
         } else {
             let _ = write!(left, "  \x1b[38;2;60;80;105mDASH {:.1}s\x1b[0m", p.dash_cd);

@@ -106,6 +106,33 @@ pub(super) fn segment_hit(p: V2, a: V2, b: V2, radius: f32) -> Option<f32> {
 
 pub struct Rng(pub(super) u64);
 
+/// Distance between two segments, including crossings and stationary endpoints.
+pub(super) fn segments_distance(a: V2, b: V2, c: V2, d: V2) -> f32 {
+    let cross = |u: V2, v: V2| u.x * v.y - u.y * v.x;
+    let denominator = cross(b - a, d - c);
+    if denominator != 0.0 {
+        let t = cross(c - a, d - c) / denominator;
+        let u = cross(c - a, b - a) / denominator;
+        if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+            return 0.0;
+        }
+    }
+    let distance = |p: V2, a: V2, b: V2| {
+        let delta = b - a;
+        let len2 = delta.dot(delta);
+        let t = if len2 > 0.0 {
+            ((p - a).dot(delta) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (p - a - delta * t).len()
+    };
+    distance(a, c, d)
+        .min(distance(b, c, d))
+        .min(distance(c, a, b))
+        .min(distance(d, a, b))
+}
+
 impl Rng {
     pub(super) fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;

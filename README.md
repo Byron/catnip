@@ -44,7 +44,8 @@ Sound uses CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
 | mouse | aim |
 | hold left click | fire |
 | hold middle click / E, then release | charge and release a gatling barrage |
-| Space / right click | dash |
+| tap right click / Space / R | barrel roll |
+| hold right click / Space / R, then release | charge a star-laser spin |
 | Esc / P | pause |
 | Q | quit |
 
@@ -78,6 +79,21 @@ Every bullet pushes its target along its flight direction, including bosses.
 Repeated impacts build momentum, while firing gives your ship a little recoil.
 Direct hits from either weapon destroy enemy bullets, including tank volleys
 and boss shots, consuming your bullet too.
+
+Right click, Space or R starts an immediate forward barrel roll, spending a dash
+charge. Release within 0.18 seconds for evasion; keep holding to charge the
+offensive version, then release to fire a rotating eight-spoke star laser.
+It shares the gatling's heat rules: more charge means more damage and
+duration (up to 1.6 seconds); release in the final 10% of heat for 10% extra
+damage and a faster spin. Overheating forces a discharge with 25% less power
+and requires release to rearm. Coolant extends charging time. The lasers extend
+across the entire screen with no range limit, becoming thinner as their power
+fades. They rotate at half a turn per second (0.8 with the timing bonus) and
+destroy enemy bullets they touch;
+the close shield reflects bullets back as friendly shots. Ship contact deals
+heavy damage and pushes enemies away, with no damage or recoil to your ship.
+Landing inside enemy ships destroys all overlapping ships (including the boss)
+and costs one heart, even during hit grace.
 
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose up to a quarter of their damage at long range, so it pays to get

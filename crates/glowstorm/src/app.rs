@@ -164,7 +164,11 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                 MouseEventKind::Up(MouseButton::Left) => input.fire = false,
                 MouseEventKind::Down(MouseButton::Middle) => input.charge = true,
                 MouseEventKind::Up(MouseButton::Middle) => input.charge = false,
-                MouseEventKind::Down(MouseButton::Right) => input.dash = true,
+                MouseEventKind::Down(MouseButton::Right) => {
+                    input.spin = true;
+                    input.dash = true;
+                }
+                MouseEventKind::Up(MouseButton::Right) => input.spin = false,
                 _ => {}
             }
         }
@@ -172,6 +176,7 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
             input.held.clear();
             input.fire = false;
             input.charge = false;
+            input.spin = false;
             game.on_focus_lost();
         }
         _ => {}
@@ -243,6 +248,41 @@ impl Meter {
 mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, MouseEvent};
+
+    #[test]
+    fn right_mouse_stays_held_until_release_or_focus_loss() {
+        let mut game = Game::new(7);
+        let mut input = Input::default();
+        let mouse = |kind| {
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 100,
+                row: 100,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        handle(
+            mouse(MouseEventKind::Down(MouseButton::Right)),
+            &mut input,
+            &mut game,
+        );
+        input.end_frame();
+        assert!(input.spin);
+        assert!(!input.dash && !input.fire && !input.clicked);
+        handle(
+            mouse(MouseEventKind::Up(MouseButton::Right)),
+            &mut input,
+            &mut game,
+        );
+        assert!(!input.spin);
+        handle(
+            mouse(MouseEventKind::Down(MouseButton::Right)),
+            &mut input,
+            &mut game,
+        );
+        handle(Event::FocusLost, &mut input, &mut game);
+        assert!(!input.spin);
+    }
 
     #[test]
     fn charge_tracks_middle_mouse_and_e_and_clears_on_focus_loss() {

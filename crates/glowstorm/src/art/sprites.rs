@@ -10,6 +10,7 @@ pub struct Sprites {
     pub bullet: Vec<Frame>,
     /// Charging muzzle: normal and timing bonus.
     pub charged: [Vec<Frame>; 2],
+    pub laser: [Vec<Frame>; 5],
     pub chaser: Flashing,
     pub swarm: Flashing,
     pub shooter: Flashing,
@@ -97,6 +98,32 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
                     })
                     .with_alpha(alpha),
                 )
+            })
+            .collect()
+    });
+
+    let laser = [0.5, 1.0, 2.0, 3.0, 6.0].map(|width| {
+        (0..128)
+            .map(|i| {
+                let angle = i as f32 * TAU / 128.0;
+                let dir = (angle.cos(), angle.sin());
+                let w = ((dir.0.abs() * 16.0 + 18.0) * s).ceil() as u32;
+                let h = ((dir.1.abs() * 16.0 + 18.0) * s).ceil() as u32;
+                let mut lines = Mask::new(w, h);
+                let body = Mask::new(w, h);
+                let center = (w as f32 * 0.5, h as f32 * 0.5);
+                lines.line(
+                    (center.0 - dir.0 * 8.0 * s, center.1 - dir.1 * 8.0 * s),
+                    (center.0 + dir.0 * 8.0 * s, center.1 + dir.1 * 8.0 * s),
+                    width * 2.0 * s,
+                );
+                atlas.add(neon(
+                    &lines,
+                    &body,
+                    Hue::Cyan.color(),
+                    (4.0 * s) as usize,
+                    1.6,
+                ))
             })
             .collect()
     });
@@ -316,6 +343,7 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         ghost,
         bullet,
         charged,
+        laser,
         chaser,
         swarm,
         shooter,

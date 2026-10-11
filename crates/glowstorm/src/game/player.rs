@@ -19,10 +19,59 @@ pub struct Player {
     /// Weapon heat, 0..1. Firing and charging add heat; at 1 the gun locks.
     pub heat: f32,
     pub overheated: bool,
-    /// Charge accumulated by holding middle mouse or E, 0..1.
+    /// Charge accumulated for the gatling or star laser, 0..1.
     pub charge: f32,
     /// Automatic discharge needs a release before another charge can start.
     pub(super) charge_blocked: bool,
+    pub spin: Option<Spin>,
+    pub(super) roll_hold: Option<f32>,
+    pub charge_spin: bool,
+}
+
+pub struct Spin {
+    pub life: f32,
+    pub angle: f32,
+    pub(super) fire_cd: f32,
+    pub(super) from: V2,
+    pub(super) active: f32,
+    pub duration: f32,
+    pub charge: f32,
+    pub boosted: bool,
+    pub(super) damage: f32,
+}
+
+impl Spin {
+    pub(super) fn new(charge: f32, boosted: bool, multiplier: f32, pos: V2, angle: f32) -> Self {
+        let duration = 0.35 + 1.25 * charge;
+        Self {
+            life: duration,
+            duration,
+            charge,
+            boosted,
+            damage: (1.0 + 2.0 * charge) * multiplier,
+            angle,
+            fire_cd: 0.0,
+            from: pos,
+            active: 0.0,
+        }
+    }
+
+    pub fn strength(&self) -> f32 {
+        (self.life / self.duration).clamp(0.0, 1.0)
+    }
+
+    pub fn width(&self) -> f32 {
+        0.5 + (2.5 + 3.0 * self.charge) * self.strength()
+    }
+
+    pub fn angular_speed(&self) -> f32 {
+        TAU * if self.boosted { 0.8 } else { 0.5 }
+    }
+
+    pub fn laser_angle(&self) -> f32 {
+        let step = TAU / (8.0 * 16.0);
+        (self.angle / step).round() * step
+    }
 }
 
 impl Player {
@@ -43,6 +92,9 @@ impl Player {
             overheated: false,
             charge: 0.0,
             charge_blocked: false,
+            spin: None,
+            roll_hold: None,
+            charge_spin: false,
             dash_charges: 1,
             upgrades: Upgrades::default(),
         }
@@ -63,7 +115,11 @@ impl Player {
     }
 
     pub fn dashing(&self) -> bool {
-        self.dash_t > 0.0
+        self.dash_t > 0.0 || self.spin.is_some()
+    }
+
+    pub fn angle(&self) -> f32 {
+        self.spin.as_ref().map_or(self.aim, |spin| spin.angle)
     }
 }
 
@@ -91,6 +147,9 @@ pub const CHARGE_BOOST_HEAT: f32 = 0.9;
 pub(super) const DASH_SPEED: f32 = 1350.0;
 
 pub(super) const DASH_TIME: f32 = 0.17;
+pub(super) const SPIN_SPEED: f32 = 650.0;
+pub(super) const ROLL_TAP_TIME: f32 = 0.18;
+pub const SPIN_RADIUS: f32 = 48.0;
 
 pub const DASH_COOLDOWN: f32 = 1.3;
 
@@ -147,8 +206,9 @@ impl Game {
         }
         p.invuln -= dt;
         p.rapid_t -= dt;
-        let wants_dash = input.dash || input.hit(&[KeyCode::Char(' ')]);
-        if wants_dash && p.dash_charges > 0 {
+        let wants_dash = input.dash || input.hit(&[KeyCode::Char(' '), KeyCode::Char('r')]);
+        let roll_held = input.spin || input.down(&[KeyCode::Char(' '), KeyCode::Char('r')]);
+        if wants_dash && p.dash_charges > 0 && !p.dashing() && !p.charge_spin {
             p.dash_charges -= 1;
             if p.dash_cd <= 0.0 {
                 p.dash_cd = dash_cooldown;
@@ -160,10 +220,38 @@ impl Game {
             };
             p.vel = dir * DASH_SPEED;
             p.dash_t = DASH_TIME;
+            if roll_held && p.charge == 0.0 && !p.charge_blocked && gatling.is_none() {
+                p.roll_hold = Some(0.0);
+            }
             sfx.push(Sfx::Dash);
         }
+        if let Some(held) = &mut p.roll_hold {
+            if roll_held {
+                *held += dt;
+                if *held > ROLL_TAP_TIME {
+                    p.charge_spin = true;
+                }
+            } else {
+                p.roll_hold = None;
+            }
+        }
 
-        if p.dash_t > 0.0 {
+        let movement_dt = if let Some(spin) = &mut p.spin {
+            spin.from = p.pos;
+            spin.active = dt.min(spin.life);
+            spin.life -= spin.active;
+            spin.angle += spin.active * spin.angular_speed();
+            p.ghost_cd -= spin.active;
+            if p.ghost_cd <= 0.0 && spin.active > 0.0 {
+                p.ghost_cd = 0.018;
+                ghosts.push(Ghost {
+                    pos: p.pos,
+                    angle: spin.angle,
+                    life: 0.22,
+                });
+            }
+            spin.active
+        } else if p.dash_t > 0.0 {
             p.dash_t -= dt;
             p.ghost_cd -= dt;
             if p.ghost_cd <= 0.0 {
@@ -177,11 +265,13 @@ impl Game {
             if p.dash_t <= 0.0 {
                 p.vel = p.vel * 0.35;
             }
+            dt
         } else {
             p.vel += movement * ACCEL * dt;
             p.vel = p.vel * (-DRAG * dt).exp();
-        }
-        p.pos += p.vel * dt;
+            dt
+        };
+        p.pos += p.vel * movement_dt;
         let lo = WALL + PLAYER_RADIUS;
         if p.pos.x < lo || p.pos.x > size.x - lo {
             p.pos.x = p.pos.x.clamp(lo, size.x - lo);
@@ -193,17 +283,36 @@ impl Game {
         }
 
         p.fire_cd -= dt;
+        if p.spin.is_some() {
+            let cooling = if p.overheated {
+                OVERHEAT_COOLING
+            } else {
+                HEAT_COOLING * cooling_boost
+            };
+            p.heat = (p.heat - cooling * dt).max(0.0);
+            if p.heat <= HEAT_RESUME {
+                p.overheated = false;
+            }
+            return;
+        }
         let cooling = if p.overheated {
             OVERHEAT_COOLING
         } else {
             HEAT_COOLING * cooling_boost
         };
-        let charging = input.charge || input.down(&[KeyCode::Char('e')]);
-        if !charging {
+        let charging = if p.charge_spin {
+            roll_held
+        } else {
+            input.charge || input.down(&[KeyCode::Char('e')])
+        };
+        if !charging && !roll_held {
             p.charge_blocked = false;
         }
         // Release uses the heat shown on the last frame, before passive cooling.
         let release = p.charge > 0.0 && !charging;
+        if p.charge_spin && !charging && p.charge == 0.0 {
+            p.charge_spin = false;
+        }
         if !release
             && (!charging
                 || p.overheated
@@ -239,20 +348,35 @@ impl Game {
                     1.0
                 };
             let duration = 0.35 + 1.25 * p.charge;
-            *gatling = Some(Gatling {
-                charge: p.charge,
-                boosted,
-                damage,
-                life: duration,
-                duration,
-                fire_cd: 0.0,
-                range: (650.0 + 550.0 * p.charge)
-                    * if p.upgrades.level(Upgrade::Range) >= 2 {
-                        1.25
-                    } else {
-                        1.0
-                    },
-            });
+            if p.charge_spin {
+                let multiplier = damage / (1.0 + 2.0 * p.charge);
+                p.spin = Some(Spin::new(p.charge, boosted, multiplier, p.pos, p.aim));
+                let dir = if movement != V2::default() {
+                    movement
+                } else {
+                    V2::from_angle(p.aim)
+                };
+                p.vel = dir * SPIN_SPEED * if boosted { 1.6 } else { 1.0 };
+                p.dash_t = 0.0;
+                p.roll_hold = None;
+                p.charge_spin = false;
+                sfx.push(Sfx::Dash);
+            } else {
+                *gatling = Some(Gatling {
+                    charge: p.charge,
+                    boosted,
+                    damage,
+                    life: duration,
+                    duration,
+                    fire_cd: 0.0,
+                    range: (650.0 + 550.0 * p.charge)
+                        * if p.upgrades.level(Upgrade::Range) >= 2 {
+                            1.25
+                        } else {
+                            1.0
+                        },
+                });
+            }
             p.charge = 0.0;
             p.fire_cd = 0.25;
             if forced {

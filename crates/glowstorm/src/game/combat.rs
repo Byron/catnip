@@ -70,6 +70,9 @@ pub fn bullet_damage(traveled: f32, range: f32) -> f32 {
 
 impl Game {
     pub(super) fn update_gatling(&mut self, dt: f32) {
+        if self.player.spin.is_some() {
+            return;
+        }
         let Some(gun) = &mut self.gatling else { return };
         let active = dt.min(gun.life);
         let interval = if gun.boosted { 0.025 } else { 0.035 };
@@ -112,6 +115,191 @@ impl Game {
         }
         for vel in flashes {
             self.emit(muzzle, vel, 0.08, Hue::Yellow, 1);
+        }
+    }
+
+    pub(super) fn update_spin(&mut self, dt: f32) {
+        let power = self.power();
+        let Some(spin) = &mut self.player.spin else {
+            return;
+        };
+        let (from, at, active, landed) =
+            (spin.from, self.player.pos, spin.active, spin.life <= 0.0);
+        let mut shots = Vec::new();
+        spin.fire_cd -= active;
+        if spin.fire_cd <= 0.0 && active > 0.0 {
+            self.sfx.push(Sfx::Gatling);
+            spin.fire_cd = 0.05;
+        }
+        let steps = (active * 960.0).ceil().max(1.0) as usize;
+        let step_dt = active / steps as f32;
+        let angular_speed = spin.angular_speed();
+        // An arena diagonal reaches every target; laser reach never fades with charge.
+        let beam_radius = self.arena_size.len();
+        let beam_width = spin.width();
+        let laser_damage = spin.damage * (0.35 + 0.65 * spin.strength()) * 45.0;
+        let beams: Vec<_> = (0..steps)
+            .map(|step| {
+                let a = step as f32 / steps as f32;
+                let b = (step + 1) as f32 / steps as f32;
+                let angle = spin.angle - active * (1.0 - (a + b) * 0.5) * angular_speed;
+                let angle = (angle / (TAU / 128.0)).round() * (TAU / 128.0);
+                let ends: [V2; 8] = std::array::from_fn(|i| {
+                    V2::from_angle(angle + i as f32 * TAU / 8.0) * beam_radius
+                });
+                (a, b, ends)
+            })
+            .collect();
+        let beam_hit = |pos: V2, prev: V2, radius: f32| {
+            let mut time = 0.0;
+            for (a, b, ends) in &beams {
+                let (a, b) = (*a, *b);
+                let start = prev + (pos - prev) * a - (from + (at - from) * a);
+                let end = prev + (pos - prev) * b - (from + (at - from) * b);
+                if ends.iter().any(|beam_end| {
+                    segments_distance(start, end, V2::default(), *beam_end) <= radius + beam_width
+                }) {
+                    time += step_dt;
+                }
+            }
+            time
+        };
+        let mut hit = false;
+        for e in &mut self.enemies {
+            let laser_time = beam_hit(e.pos, e.pos, e.kind.radius());
+            if laser_time > 0.0 {
+                e.hp -= laser_damage * power * laser_time;
+                e.flash = 0.08;
+                e.impulse += (e.pos - at).norm() * (1200.0 * laser_time);
+            }
+            let contact = active > 0.0
+                && segment_hit(e.pos, from, at, e.kind.radius() + PLAYER_RADIUS).is_some();
+            if contact {
+                e.hp -= 180.0 * power * active;
+                e.flash = 0.08;
+                let away = e.pos - at;
+                let dir = if away.len() > 1e-6 {
+                    away.norm()
+                } else {
+                    V2::from_angle(self.player.aim)
+                };
+                e.impulse += dir * (6000.0 * active);
+            }
+            if landed && (e.pos - at).len() < e.kind.radius() + PLAYER_RADIUS {
+                hit = true;
+            }
+        }
+        let mut landed_boss = false;
+        if let Some(boss) = &mut self.boss
+            && boss.entering <= 0.0
+        {
+            let laser_time = beam_hit(boss.pos, boss.pos, BOSS_RADIUS);
+            if laser_time > 0.0 {
+                boss.hp -= laser_damage * power * laser_time;
+                boss.flash = 0.08;
+                boss.impulse += (boss.pos - at).norm() * (1200.0 * laser_time);
+            }
+            if active > 0.0
+                && segment_hit(boss.pos, from, at, BOSS_RADIUS + PLAYER_RADIUS).is_some()
+            {
+                boss.hp -= 180.0 * power * active;
+                boss.flash = 0.08;
+                let away = boss.pos - at;
+                let dir = if away.len() > 1e-6 {
+                    away.norm()
+                } else {
+                    V2::from_angle(self.player.aim)
+                };
+                boss.impulse += dir * (6000.0 * active);
+            }
+            if landed && (boss.pos - at).len() < BOSS_RADIUS + PLAYER_RADIUS {
+                landed_boss = true;
+                hit = true;
+            }
+        }
+        let flight = if dt > 0.0 { active / dt } else { 0.0 };
+        let mut reflected_at = Vec::new();
+        self.orbs.retain(|orb| {
+            if active <= 0.0 {
+                return true;
+            }
+            let contact = segment_hit(
+                V2::default(),
+                orb.prev - from,
+                orb.prev + (orb.pos - orb.prev) * flight - at,
+                SPIN_RADIUS + orb.radius(),
+            );
+            if let Some(t) = contact.filter(|t| orb.life + dt >= *t * active) {
+                let center = from + (at - from) * t;
+                let pos = orb.prev + (orb.pos - orb.prev) * (t * flight);
+                let away = pos - center;
+                let dir = if away.len() > 1e-6 {
+                    away.norm()
+                } else {
+                    if orb.vel.len() > 1e-6 {
+                        -orb.vel.norm()
+                    } else {
+                        V2::from_angle(self.player.aim)
+                    }
+                };
+                let reflected = orb.vel - dir * (2.0 * orb.vel.dot(dir));
+                let vel = if reflected.dot(dir) > 0.0 {
+                    reflected.norm() * BULLET_SPEED
+                } else {
+                    dir * BULLET_SPEED
+                };
+                shots.push((pos, vel, if orb.heavy { 6.0 } else { 3.0 }));
+                reflected_at.push(pos);
+                false
+            } else if beam_hit(
+                orb.prev + (orb.pos - orb.prev) * flight,
+                orb.prev,
+                orb.radius(),
+            ) > 0.0
+            {
+                reflected_at.push(orb.pos);
+                false
+            } else {
+                true
+            }
+        });
+        for (pos, vel, damage) in shots {
+            self.bullets.push(Bullet {
+                pos,
+                prev: pos,
+                vel,
+                traveled: 0.0,
+                range: BULLET_RANGE,
+                damage,
+                pierce: self.player.upgrades.level(Upgrade::Pierce),
+                last_hit: 0,
+                falloff: false,
+            });
+        }
+        for pos in reflected_at {
+            let vel = self.rng.dir() * 180.0;
+            self.emit(pos, vel, 0.2, Hue::Cyan, 1);
+            self.sfx.push(Sfx::Hit);
+        }
+        if landed {
+            self.player.spin = None;
+            self.player.vel = self.player.vel * 0.35;
+            let (crushed, alive): (Vec<_>, Vec<_>) = self
+                .enemies
+                .drain(..)
+                .partition(|e| (e.pos - at).len() < e.kind.radius() + PLAYER_RADIUS);
+            self.enemies = alive;
+            for e in crushed {
+                self.kill(e, false);
+            }
+            if hit {
+                self.hurt_player(at, false);
+            }
+        }
+        if (landed_boss || self.boss.as_ref().is_some_and(|boss| boss.hp <= 0.0))
+            && let Some(boss) = self.boss.take()
+        {
+            self.boss_defeated(boss);
         }
     }
 
@@ -256,11 +444,11 @@ impl Game {
         let (dead, alive): (Vec<_>, Vec<_>) = self.enemies.drain(..).partition(|e| e.hp <= 0.0);
         self.enemies = alive;
         for e in dead {
-            self.kill(e);
+            self.kill(e, true);
         }
     }
 
-    pub(super) fn kill(&mut self, e: Enemy) {
+    pub(super) fn kill(&mut self, e: Enemy, split: bool) {
         let before = self.multiplier();
         self.chain += 1;
         self.chain_t = 2.2;
@@ -325,7 +513,7 @@ impl Game {
             self.hitstop = 0.04;
             self.flash = 0.05;
         }
-        if let Some((kind, count)) = e.kind.spec().splits_into {
+        if split && let Some((kind, count)) = e.kind.spec().splits_into {
             for i in 0..count {
                 let dir = V2::from_angle(i as f32 * TAU / count as f32 + self.rng.unit());
                 self.add_enemy(kind, e.pos + dir * 26.0, dir * 380.0, false);
@@ -338,7 +526,7 @@ impl Game {
         } else {
             0.06
         };
-        if self.rng.chance(drop_chance) {
+        if split && self.rng.chance(drop_chance) {
             let kind = if self.player.hp < self.player.max_hp && self.rng.chance(0.5) {
                 PickupKind::Heart
             } else {
@@ -389,14 +577,19 @@ impl Game {
         let Some(source) = source else {
             return;
         };
+        self.hurt_player(source, true);
+    }
 
+    fn hurt_player(&mut self, source: V2, knockback: bool) {
         let p = &mut self.player;
         p.hp -= 1;
         if self.dev.god {
             p.hp = p.hp.max(1);
         }
         p.invuln = 1.3;
-        p.vel = (p.pos - source).norm() * 700.0;
+        if knockback {
+            p.vel = (p.pos - source).norm() * 700.0;
+        }
         let pos = p.pos;
         self.chain = 0;
         self.shake = 16.0;
@@ -451,6 +644,9 @@ impl Game {
 
     /// Shield orbs eat enemy bullets and burn whatever they touch.
     pub(super) fn update_shields(&mut self, dt: f32) {
+        if self.player.spin.is_some() {
+            return;
+        }
         let shields = self.player.shield_orbs(self.time);
         if shields.is_empty() {
             return;

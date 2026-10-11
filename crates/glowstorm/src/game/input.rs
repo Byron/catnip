@@ -14,6 +14,7 @@ pub struct Input {
     pub charge: bool,
     pub clicked: bool,
     pub dash: bool,
+    pub spin: bool,
     /// The mouse moved this frame (hover only follows real movement).
     pub mouse_moved: bool,
 }
