@@ -78,12 +78,12 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · Shift thrust · mouse aim · left fire · 1/2/3 gun/sniper/rocket · right / Space evade",
+                    "WASD move · Shift thrust · mouse aim · left fire · 1/2/3/4 gun/sniper/rocket/plasma",
                 );
                 text.line(
                     r + 1,
                     "38;2;200;210;255",
-                    "Hold right-click / Space for star-laser · middle-click / E charge weapon burst · release to fire",
+                    "Tap right / Space evade · hold for star-laser · middle / E charge weapon · release to fire",
                 );
                 if self.ghostty {
                     text.line(

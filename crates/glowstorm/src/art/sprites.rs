@@ -11,6 +11,9 @@ pub struct Sprites {
     /// Elongated sniper rounds: fresh and weakened after piercing.
     pub sniper: [Vec<Frame>; 2],
     pub rocket: Vec<Frame>,
+    pub plasma: [Frame; 2],
+    /// Green plasma spheres, from a fresh charge to full BFG power.
+    pub bfg: Vec<Frame>,
     /// Charging muzzle: normal and timing bonus.
     pub charged: [Vec<Frame>; 2],
     pub laser: [Vec<Frame>; 5],
@@ -125,6 +128,33 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
                 let flame = rotate(&[(-0.5, 0.0), (-1.0, 0.0)], angle, c, r);
                 l.line(flame[0], flame[1], line(4.0));
             }))
+        })
+        .collect();
+
+    let plasma = [1.0, 0.55].map(|alpha| {
+        atlas.add(
+            neon_sprite(s, 9.0, hex(0x449dff), |l, b, c, r| {
+                b.fill_circle(c, r, 1.0);
+                l.stroke_circle(c, r, line(2.2));
+                l.fill_circle(c, r * 0.55, 1.0);
+            })
+            .with_alpha(alpha),
+        )
+    });
+    let bfg = (0..13)
+        .map(|i| {
+            atlas.add(neon_sprite(
+                s,
+                24.0 + 56.0 * i as f32 / 12.0,
+                Hue::Green.color(),
+                |l, b, c, r| {
+                    b.fill_circle(c, r, 1.0);
+                    l.stroke_circle(c, r, line(3.0));
+                    l.fill_circle(c, r * 0.45, 1.0);
+                    let corona = rotate(&star(7, 0.65), 0.0, c, r * 0.88);
+                    l.stroke_polygon(&corona, line(2.0));
+                },
+            ))
         })
         .collect();
 
@@ -385,6 +415,8 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         bullet,
         sniper,
         rocket,
+        plasma,
+        bfg,
         charged,
         laser,
         chaser,

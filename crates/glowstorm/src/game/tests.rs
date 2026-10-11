@@ -3,6 +3,185 @@
 use super::*;
 
 #[test]
+fn plasma_slot_fires_a_dense_stream_at_low_and_high_frame_rates() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let select = Input {
+        pressed: vec![KeyCode::Char('4')],
+        ..Input::default()
+    };
+    let fire = Input {
+        fire: true,
+        ..Input::default()
+    };
+    let mut game = Game::new(7);
+    game.update(0.0, &select, &view);
+    assert_eq!(game.difficulty, Difficulty::Medium);
+    assert_eq!(game.player.weapon, Weapon::Default);
+    game.state = State::Playing;
+    game.player.fire_cd = 0.2;
+    game.update(0.0, &select, &view);
+    assert_eq!(game.player.weapon, Weapon::Plasma);
+    game.update_player(0.0, &fire, &view);
+    assert!(game.bullets.is_empty(), "switching preserves the cooldown");
+
+    for rapid in [false, true] {
+        for fps in [30, 60, 144] {
+            let mut game = Game::new(7);
+            game.player.weapon = Weapon::Plasma;
+            game.player.rapid_t = if rapid { 2.0 } else { 0.0 };
+            for _ in 0..fps {
+                game.update_player(1.0 / fps as f32, &fire, &view);
+            }
+            let expected = if rapid { 80 } else { 40 };
+            assert!(
+                (expected..=expected + 1).contains(&game.bullets.len()),
+                "{fps} FPS, rapid={rapid}: {} shots",
+                game.bullets.len()
+            );
+            assert!(
+                game.bullets
+                    .iter()
+                    .all(|b| b.weapon == Weapon::Plasma && b.damage == PLASMA_DAMAGE)
+            );
+            assert!(
+                (game.player.heat - 0.68).abs() < 0.04,
+                "heat: {}",
+                game.player.heat
+            );
+            assert!(!game.player.overheated);
+        }
+    }
+    game.player.fire_cd = 0.0;
+    game.update_player(2.0, &Input::default(), &view);
+    game.player.aim = 0.0;
+    game.player.pos = v2(300.0, 500.0);
+    game.player.vel = V2::default();
+    game.update_player(1.0 / 30.0, &fire, &view);
+    assert_eq!(game.bullets.len(), 2, "idle time does not bank shots");
+    game.update_bullets(1.0 / 30.0);
+    assert!(game.bullets[0].traveled > 50.0);
+    assert!(
+        game.bullets[1].traveled < 14.0,
+        "later shots only fly for their part of the frame"
+    );
+    assert!((game.bullets[0].pos - game.bullets[1].pos).len() > 35.0);
+}
+
+#[test]
+fn plasma_hits_splatter_and_push_even_heavy_ships_into_a_drift() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for boss in [false, true] {
+        let mut game = Game::new(7);
+        game.player.pos = v2(300.0, 500.0);
+        game.player.aim = 0.0;
+        game.player.weapon = Weapon::Plasma;
+        let target = v2(500.0, 500.0);
+        if boss {
+            game.spawn_boss();
+            let b = game.boss.as_mut().unwrap();
+            b.entering = 0.0;
+            b.pos = target;
+            b.hp = 1000.0;
+        } else {
+            game.add_enemy(Kind::Tank, target, V2::default(), false);
+            game.enemies[0].hp = 1000.0;
+        }
+        game.update_player(
+            0.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        game.particles.clear();
+        game.update_bullets(0.2);
+        assert!(game.bullets.is_empty());
+        assert_eq!(game.particles.len(), 18);
+        assert!(
+            game.particles
+                .iter()
+                .all(|p| matches!(p.hue, Hue::Cyan | Hue::White))
+        );
+        assert!(
+            game.particles
+                .iter()
+                .any(|p| p.size == 2 && p.vel.y.abs() > 100.0)
+        );
+        if boss {
+            let b = game.boss.as_ref().unwrap();
+            assert!(b.hp <= 994.0 && b.impulse.x > 90.0 && b.stun > 0.0);
+            game.update_boss(0.1);
+            assert!(game.boss.as_ref().unwrap().pos.x > target.x + 5.0);
+        } else {
+            let e = &game.enemies[0];
+            assert!(e.hp <= 994.0 && e.impulse.x > 140.0 && e.stun > 0.0);
+            game.update_enemies(0.1);
+            assert!(game.enemies[0].pos.x > target.x + 10.0);
+        }
+    }
+}
+
+#[test]
+fn bfg_charge_grows_and_honors_timing_power_upgrades_and_pause() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for seconds in [0.12, 0.36, 0.57, 0.6] {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.player.weapon = Weapon::Plasma;
+        game.player.pos = v2(300.0, 500.0);
+        game.player.aim = 0.0;
+        game.player.upgrades.add(Upgrade::Range);
+        game.player.upgrades.add(Upgrade::Range);
+        game.update_player(
+            seconds,
+            &Input {
+                charge: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        game.update_player(0.0, &Input::default(), &view);
+        assert_eq!(game.bfgs.len(), 1);
+        assert!(game.bullets.is_empty() && game.gatling.is_none());
+        let forced = seconds == 0.6;
+        let boosted = seconds == 0.57;
+        let multiplier = if forced {
+            0.75
+        } else if boosted {
+            1.1
+        } else {
+            1.0
+        };
+        let ball = &game.bfgs[0];
+        let charge = seconds / 0.6;
+        assert!((ball.charge - charge).abs() < 1e-5);
+        assert!((ball.radius() - (24.0 + 56.0 * charge)).abs() < 1e-4);
+        assert!((ball.damage - (120.0 + 360.0 * charge) * multiplier).abs() < 1e-3);
+        assert_eq!(ball.range, 2000.0);
+        assert!((ball.vel.len() - 560.0 * if boosted { 1.35 } else { 1.0 }).abs() < 1e-4);
+        assert_eq!(game.player.overheated, forced);
+        assert_eq!(game.player.charge, 0.0);
+        let pos = ball.pos;
+        game.pause();
+        game.update(0.5, &Input::default(), &view);
+        assert_eq!(game.bfgs[0].pos, pos);
+        game.start();
+        assert!(game.bfgs.is_empty());
+        assert_eq!(game.player.weapon, Weapon::Default);
+    }
+}
+
+#[test]
 fn rocket_slot_fires_slow_explosive_rounds_and_charge_scales_to_ten() {
     let view = View {
         scale: 1.0,
@@ -283,6 +462,7 @@ fn sniper_entry_and_exit_impacts_are_separate_and_exit_throws_more_debris() {
             game.bullets.push(Bullet {
                 pos: v2(400.0, 515.0),
                 prev: v2(400.0, 515.0),
+                delay: 0.0,
                 vel: v2(5000.0, 0.0),
                 traveled: 0.0,
                 range: 1800.0,
@@ -345,6 +525,7 @@ fn sniper_exit_follows_deflection_inside_a_ship_and_stops_at_range() {
         game.bullets.push(Bullet {
             pos: v2(400.0, 500.0),
             prev: v2(400.0, 500.0),
+            delay: 0.0,
             vel: v2(5000.0, 0.0),
             traveled: 0.0,
             range,
@@ -920,6 +1101,7 @@ fn sniper_clears_enemy_bullets_and_continues_without_losing_speed_or_power() {
         game.bullets.push(Bullet {
             pos: v2(300.0, 300.0),
             prev: v2(300.0, 300.0),
+            delay: 0.0,
             vel: v2(5000.0, 0.0),
             traveled: 0.0,
             range: 1800.0,
@@ -968,6 +1150,7 @@ fn sniper_resweeps_multiple_deflections_and_only_hits_ships_on_its_new_path() {
     game.bullets.push(Bullet {
         pos: v2(300.0, 300.0),
         prev: v2(300.0, 300.0),
+        delay: 0.0,
         vel: v2(5000.0, 0.0),
         traveled: 0.0,
         range: 1800.0,
@@ -1012,6 +1195,7 @@ fn sniper_deflected_sweep_tracks_moving_orbs_and_still_expires() {
                 game.bullets.push(Bullet {
                     pos: v2(300.0, 300.0),
                     prev: v2(300.0, 300.0),
+                    delay: 0.0,
                     vel: v2(5000.0, 0.0),
                     traveled: 0.0,
                     range: if wall { 1800.0 } else { 400.0 },
@@ -1895,6 +2079,7 @@ fn bullets_intercept_orbs_only_when_their_cores_meet_at_the_same_time() {
         game.bullets.push(Bullet {
             pos: v2(300.0, 300.0),
             prev: v2(300.0, 300.0),
+            delay: 0.0,
             vel: v2(BULLET_SPEED, 0.0),
             traveled: 0.0,
             range: BULLET_RANGE,
@@ -1983,6 +2168,7 @@ fn interceptions_respect_enemy_and_boss_order_and_piercing() {
         game.bullets.push(Bullet {
             pos: v2(300.0, 300.0),
             prev: v2(300.0, 300.0),
+            delay: 0.0,
             vel: v2(BULLET_SPEED, 0.0),
             traveled: 0.0,
             range: BULLET_RANGE,
@@ -2064,6 +2250,7 @@ fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
         game.bullets.push(Bullet {
             pos: v2(x, 300.0),
             prev: v2(x, 300.0),
+            delay: 0.0,
             vel: v2(BULLET_SPEED, 0.0),
             traveled: 0.0,
             range: if wall { BULLET_RANGE } else { 50.0 },
@@ -2098,6 +2285,7 @@ fn an_orbs_final_sweep_can_be_intercepted_before_it_leaves_or_expires() {
         game.bullets.push(Bullet {
             pos: v2(300.0, 300.0),
             prev: v2(300.0, 300.0),
+            delay: 0.0,
             vel: v2(BULLET_SPEED, 0.0),
             traveled: 0.0,
             range: BULLET_RANGE,
@@ -2697,6 +2885,7 @@ fn piercing_bullet_hits_two_enemies_in_a_line() {
     game.bullets.push(Bullet {
         pos: v2(300.0, 300.0),
         prev: v2(300.0, 300.0),
+        delay: 0.0,
         vel: v2(BULLET_SPEED, 0.0),
         traveled: 0.0,
         range: BULLET_RANGE,
@@ -2854,6 +3043,29 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         draw(&game);
     }
     game.player.thrust = 0.0;
+    game.player.weapon = Weapon::Plasma;
+    game.update_player(
+        0.0,
+        &Input {
+            fire: true,
+            ..Input::default()
+        },
+        &view,
+    );
+    draw(&game);
+    game.bullets.last_mut().unwrap().traveled = 1000.0;
+    draw(&game);
+    for charge in [0.1, 0.5, 0.95] {
+        game.player.charge = charge;
+        game.player.heat = charge;
+        draw(&game);
+        game.update_player(0.0, &Input::default(), &view);
+        game.update_bfgs(0.1);
+        draw(&game);
+    }
+    game.update_bfgs(10.0);
+    draw(&game);
+    game.bullets.clear();
     game.player.weapon = Weapon::Rocket;
     game.player.charge = 0.95;
     game.player.heat = 0.95;

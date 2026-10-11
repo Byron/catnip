@@ -12,6 +12,7 @@ use crate::{
     sound::Sfx,
 };
 
+mod bfg;
 mod boss;
 mod combat;
 mod difficulty;
@@ -26,6 +27,7 @@ mod tests;
 mod upgrades;
 mod waves;
 
+pub use bfg::*;
 pub use boss::*;
 pub use combat::*;
 pub use difficulty::*;
@@ -55,6 +57,7 @@ pub struct Game {
     pub player: Player,
     pub enemies: Vec<Enemy>,
     pub bullets: Vec<Bullet>,
+    pub bfgs: Vec<Bfg>,
     pub gatling: Option<Gatling>,
     pub orbs: Vec<Orb>,
     spawns: Vec<Spawn>,
@@ -137,6 +140,7 @@ impl Game {
             player: Player::new(Difficulty::Medium.hearts()),
             enemies: Vec::new(),
             bullets: Vec::new(),
+            bfgs: Vec::new(),
             gatling: None,
             orbs: Vec::new(),
             spawns: Vec::new(),
@@ -322,6 +326,8 @@ impl Game {
                     self.player.weapon = Weapon::Sniper;
                 } else if input.hit(&[KeyCode::Char('3')]) {
                     self.player.weapon = Weapon::Rocket;
+                } else if input.hit(&[KeyCode::Char('4')]) {
+                    self.player.weapon = Weapon::Plasma;
                 }
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
                     self.pause();
@@ -416,6 +422,7 @@ impl Game {
             self.update_shields(dt);
             self.update_gatling(dt);
         }
+        self.update_bfgs(dt);
         self.update_bullets(dt);
         self.shockwaves.retain_mut(|w| {
             w.r += SHOCK_SPEED * dt;

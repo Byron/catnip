@@ -47,8 +47,8 @@ synthesis, audio initialization, and playback when comparing frame rates.
 | Shift + WASD | heat-powered thrust: stronger forward, weaker reverse |
 | mouse | aim |
 | hold left click | fire |
-| 1 / 2 / 3 | select default gun / sniper / rocket blaster |
-| hold middle click / E, then release | charge and release a gatling barrage |
+| 1 / 2 / 3 / 4 | select default gun / sniper / rocket blaster / plasma gun |
+| hold middle click / E, then release | charge and release the selected weapon |
 | tap right click / Space / R | barrel roll |
 | hold right click / Space / R, then release | charge a star-laser spin |
 | Esc / P | pause |
@@ -79,7 +79,7 @@ Sniper rounds also destroy enemy bullets without being consumed. Each intercepti
 randomly deflects the round by up to 30 degrees, preserving its speed and damage.
 Hits shove surviving ships into a lingering drift. Entry impacts throw small sparks
 backward; exits eject a larger, brighter spray of debris forward along the round's path.
-Both main weapons share heat and firing cooldown. Press **1** to switch back.
+All main weapons share heat and firing cooldown. Press **1** to switch back.
 With the sniper selected, middle mouse / E charges a rapid stream of sniper rounds
 instead of a spread barrage. It follows your aim without scatter, pierces ships,
 and deflects off enemy bullets. More charge increases damage, reach, and duration;
@@ -103,6 +103,16 @@ of the blast radius, with normal hit grace and evasion protection. The outer hal
 pushes you without damage. Orange sparks outline the blast, with a smaller yellow
 ring marking the dangerous inner half.
 
+Press **4** for the plasma gun: a torrent of blue-white plasma bolts with heavy
+damage and knockback. Impacts splatter hot plasma across the target.
+Middle mouse / E charges the **BFG**, gathering an increasingly large ball of
+green plasma at the muzzle. Release sends it through the arena, annihilating
+ordinary enemies in its path and heavily damaging bosses. It consumes enemy
+bullets and keeps flying until it hits a wall or reaches its range, then erupts
+in a wide green blast that damages and throws back nearby enemies. The blast
+lights up each target with green plasma, without hurting your ship. More charge
+means a bigger ball and blast; the usual heat timing bonus and overheat penalty apply.
+
 Hold Shift while moving along your aim direction to engage the rear rocket,
 giving about twice the forward speed. Moving backward engages two smaller front
 thrusters for a weaker but noticeable boost. Thrust adds to gun heat, leaving less
@@ -118,12 +128,12 @@ Piercing and Long Range apply too.
 Release in the final 10% of the heat meter, when **RELEASE!** appears, for 10%
 extra damage, faster pellets, and a faster firing rate. Holding too long forces
 it to fire with 25% less damage and overheats the gun; release before charging
-again. Both weapons share heat. Regular fire and charging wait until the barrage
+again. All weapons share heat. Regular fire and charging wait until the barrage
 finishes; Coolant extends the charging time.
 Every bullet pushes its target along its flight direction, including bosses.
 Repeated impacts build momentum, while firing gives your ship a little recoil.
 Direct hits destroy enemy bullets, including tank volleys and boss shots.
-Normal and gatling shots are consumed too; sniper rounds keep flying with a deflection.
+Normal, gatling, and plasma shots are consumed too; sniper rounds keep flying with a deflection.
 
 Right click, Space or R starts an immediate forward barrel roll, spending a dash
 charge. Release within 0.18 seconds for evasion; keep holding to charge the

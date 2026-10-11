@@ -5,6 +5,8 @@ use super::*;
 pub struct Bullet {
     pub pos: V2,
     pub(super) prev: V2,
+    /// Time within this frame before a scheduled rapid-fire shot is emitted.
+    pub(super) delay: f32,
     pub vel: V2,
     /// Distance flown so far; damage falls off with it.
     pub traveled: f32,
@@ -50,6 +52,7 @@ impl Bullet {
 
 pub(super) const BULLET_SPEED: f32 = 1250.0;
 pub(super) const SNIPER_DAMAGE: f32 = 18.0;
+pub(super) const PLASMA_DAMAGE: f32 = 6.0;
 pub(super) const ROCKET_SPEED: f32 = 700.0;
 pub(super) const ROCKET_RANGE: f32 = 1400.0;
 pub const BLAST_RADIUS: f32 = 200.0;
@@ -141,6 +144,7 @@ impl Game {
                 self.bullets.push(Bullet {
                     pos: muzzle,
                     prev: self.player.pos,
+                    delay: 0.0,
                     vel: d * speed
                         + if sniper {
                             V2::default()
@@ -327,6 +331,7 @@ impl Game {
             self.bullets.push(Bullet {
                 pos,
                 prev: pos,
+                delay: 0.0,
                 vel,
                 traveled: 0.0,
                 range: BULLET_RANGE,
@@ -388,6 +393,7 @@ impl Game {
         let mut hits = Vec::new();
         let mut exits = Vec::new();
         let mut blasts = Vec::new();
+        let mut plasma_hits = Vec::new();
         let power = self.power();
         let size = self.arena_size;
         let enemies = &mut self.enemies;
@@ -395,6 +401,9 @@ impl Game {
         let orbs = &mut self.orbs;
         let rng = &mut self.rng;
         self.bullets.retain_mut(|b| {
+            let plasma = b.weapon == Weapon::Plasma;
+            let core = if plasma { 9.0 } else { 2.0 };
+            let hull_padding = if plasma { core } else { 5.0 };
             if b.homing {
                 let target = enemies
                     .iter()
@@ -415,7 +424,12 @@ impl Game {
                         * b.vel.len();
                 }
             }
-            let mut elapsed = 0.0;
+            if b.delay > dt {
+                b.delay -= dt;
+                return true;
+            }
+            let mut elapsed = if dt > 0.0 { b.delay / dt } else { 0.0 };
+            b.delay = 0.0;
             loop {
                 b.prev = b.pos;
                 let step = b.vel * (dt * (1.0 - elapsed));
@@ -427,7 +441,8 @@ impl Game {
                 };
                 for (pos, delta, edge) in [(b.pos.x, step.x, size.x), (b.pos.y, step.y, size.y)] {
                     if delta != 0.0 {
-                        let wall = if delta > 0.0 { edge - WALL } else { WALL };
+                        let inset = WALL + if plasma { core } else { 0.0 };
+                        let wall = if delta > 0.0 { edge - inset } else { inset };
                         flight = flight.min(((wall - pos) / delta).clamp(0.0, 1.0));
                     }
                 }
@@ -442,7 +457,7 @@ impl Game {
                             V2::default(),
                             b.prev - (o.prev + (o.pos - o.prev) * elapsed),
                             end - (o.prev + (o.pos - o.prev) * end_time),
-                            o.radius() + 2.0,
+                            o.radius() + core,
                         )
                         .filter(|t| {
                             let time = elapsed + (end_time - elapsed) * *t;
@@ -459,7 +474,9 @@ impl Game {
                 let boss_hit = boss
                     .as_ref()
                     .filter(|_| !b.hit_ids.contains(&0))
-                    .and_then(|boss| segment_hit(boss.pos, b.prev, end, BOSS_RADIUS + 5.0));
+                    .and_then(|boss| {
+                        segment_hit(boss.pos, b.prev, end, BOSS_RADIUS + hull_padding)
+                    });
                 let barrier = interception.map_or(1.0, |(_, t)| t);
                 b.pos = b.prev + (end - b.prev) * barrier;
                 b.traveled += (b.pos - b.prev).len();
@@ -468,7 +485,7 @@ impl Game {
                     .enumerate()
                     .filter(|(_, e)| e.hp > 0.0 && !b.hit_ids.contains(&e.id))
                     .filter_map(|(i, e)| {
-                        segment_hit(e.pos, b.prev, end, e.kind.radius() + 5.0)
+                        segment_hit(e.pos, b.prev, end, e.kind.radius() + hull_padding)
                             .filter(|t| *t <= barrier)
                             .map(|t| (Some(i), t))
                     })
@@ -492,23 +509,35 @@ impl Game {
                         };
                         boss.hp -= damage;
                         let sniper = b.weapon == Weapon::Sniper && boss.entering <= 0.0;
+                        let plasma = b.weapon == Weapon::Plasma;
                         boss.stagger(if sniper { damage.max(6.0) } else { damage });
-                        boss.impulse +=
-                            b.vel * ((if sniper { 3.0 } else { 0.5 }) * damage / BULLET_SPEED);
-                        if sniper && boss.impulse.len() > 350.0 {
-                            boss.impulse = boss.impulse.norm() * 350.0;
+                        let knock = if plasma {
+                            12.0
+                        } else if sniper {
+                            3.0
+                        } else {
+                            0.5
+                        };
+                        boss.impulse += b.vel * (knock * damage / BULLET_SPEED);
+                        let cap = if plasma { 450.0 } else { 350.0 };
+                        if (sniper || plasma) && boss.impulse.len() > cap {
+                            boss.impulse = boss.impulse.norm() * cap;
                         }
                         boss.flash = 0.05;
-                        hits.push((
-                            at,
-                            b.vel,
-                            Hue::Violet,
-                            if sniper {
-                                damage.min(6.0)
-                            } else {
-                                damage.max(0.2)
-                            },
-                        ));
+                        if plasma {
+                            plasma_hits.push((at, b.vel));
+                        } else {
+                            hits.push((
+                                at,
+                                b.vel,
+                                Hue::Violet,
+                                if sniper {
+                                    damage.min(6.0)
+                                } else {
+                                    damage.max(0.2)
+                                },
+                            ));
+                        }
                         if b.weapon != Weapon::Sniper || boss.entering > 0.0 {
                             return false;
                         }
@@ -527,23 +556,31 @@ impl Game {
                     let damage = b.strength() * power;
                     e.hp -= damage;
                     let sniper = b.weapon == Weapon::Sniper;
+                    let plasma = b.weapon == Weapon::Plasma;
                     e.stagger(if sniper { damage.max(4.0) } else { damage });
                     e.flash = 0.07;
-                    let knock = if sniper {
+                    let knock = if plasma {
+                        e.kind.spec().knockback.max(18.0)
+                    } else if sniper {
                         e.kind.spec().knockback.max(6.0)
                     } else {
                         e.kind.spec().knockback
                     };
                     e.impulse += b.vel * (knock * damage / BULLET_SPEED);
-                    if sniper && e.impulse.len() > 700.0 {
-                        e.impulse = e.impulse.norm() * 700.0;
+                    let cap = if plasma { 900.0 } else { 700.0 };
+                    if (sniper || plasma) && e.impulse.len() > cap {
+                        e.impulse = e.impulse.norm() * cap;
                     }
-                    hits.push((
-                        b.prev + (end - b.prev) * t,
-                        b.vel,
-                        e.kind.hue(),
-                        if sniper { damage.min(6.0) } else { damage },
-                    ));
+                    if plasma {
+                        plasma_hits.push((b.prev + (end - b.prev) * t, b.vel));
+                    } else {
+                        hits.push((
+                            b.prev + (end - b.prev) * t,
+                            b.vel,
+                            e.kind.hue(),
+                            if sniper { damage.min(6.0) } else { damage },
+                        ));
+                    }
                     if b.weapon == Weapon::Sniper {
                         b.exits.push(ExitImpact {
                             id: e.id,
@@ -582,7 +619,11 @@ impl Game {
                         blasts.push((b.pos, b.damage * power));
                         return false;
                     }
-                    hits.push((b.pos, b.vel, Hue::Red, 0.5));
+                    if b.weapon == Weapon::Plasma {
+                        plasma_hits.push((b.pos, b.vel));
+                    } else {
+                        hits.push((b.pos, b.vel, Hue::Red, 0.5));
+                    }
                     if b.weapon != Weapon::Sniper {
                         return false;
                     }
@@ -592,7 +633,7 @@ impl Game {
                     b.vel = V2::from_angle(angle) * b.vel.len();
                     continue;
                 }
-                let lo = WALL;
+                let lo = WALL + if plasma { core } else { 0.0 };
                 if b.pos.x <= lo
                     || b.pos.y <= lo
                     || b.pos.x >= size.x - lo
@@ -602,7 +643,11 @@ impl Game {
                         blasts.push((b.pos, b.damage * power));
                         return false;
                     }
-                    wall_hits.push(b.pos);
+                    if b.weapon == Weapon::Plasma {
+                        plasma_hits.push((b.pos, b.vel));
+                    } else {
+                        wall_hits.push(b.pos);
+                    }
                     return false;
                 }
                 // A clipped step expires even if rounding leaves its endpoint short of the limit.
@@ -628,7 +673,7 @@ impl Game {
                 self.emit(pos, v, 0.2, Hue::Cyan, 0);
             }
         }
-        if !hits.is_empty() || !exits.is_empty() {
+        if !hits.is_empty() || !exits.is_empty() || !plasma_hits.is_empty() {
             self.sfx.push(Sfx::Hit);
         }
         for (pos, vel, hue, damage) in hits {
@@ -636,6 +681,22 @@ impl Game {
             for _ in 0..(1 + (damage * 4.0) as usize) {
                 let v = -vel.norm() * self.rng.range(80.0, 260.0) + self.rng.dir() * 90.0;
                 self.emit(pos, v, 0.25, hue, 0);
+            }
+        }
+        for (pos, vel) in plasma_hits {
+            let dir = vel.norm();
+            for i in 0..18 {
+                let v = -dir * self.rng.range(60.0, 240.0)
+                    + dir.perp() * self.rng.range(-380.0, 380.0)
+                    + self.rng.dir() * 60.0;
+                let life = self.rng.range(0.25, 0.5);
+                self.emit(
+                    pos,
+                    v,
+                    life,
+                    if i % 4 == 0 { Hue::White } else { Hue::Cyan },
+                    if i % 3 == 0 { 2 } else { 1 },
+                );
             }
         }
         for (pos, vel, hue, damage) in exits {

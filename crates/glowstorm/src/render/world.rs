@@ -106,6 +106,18 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
 
     for b in &game.bullets {
+        if b.weapon == Weapon::Plasma {
+            draw.sprite(sprites.plasma[usize::from(b.faded())], b.pos, Z_BULLETS);
+            draw.sprite(sprites.spark[Hue::White.index()][1], b.pos, Z_BULLETS + 1);
+            for i in 1..=3 {
+                draw.sprite(
+                    sprites.spark[Hue::Cyan.index()][usize::from(i == 1)],
+                    b.pos - b.vel.norm() * (i as f32 * 8.0),
+                    Z_BULLETS - 1,
+                );
+            }
+            continue;
+        }
         let k = art::angle_frame(b.vel.angle(), art::BULLET_ANGLES, TAU);
         // Dimmer once damage has mostly fallen off.
         let frames = if b.weapon == Weapon::Rocket {
@@ -127,6 +139,18 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
                     Z_BULLETS - 1,
                 );
             }
+        }
+    }
+
+    for b in &game.bfgs {
+        draw_bfg(draw, sprites, b.pos, b.radius(), game.time, Z_BULLETS);
+        for i in 1..=5 {
+            let at = b.pos - b.vel.norm() * (b.radius() + i as f32 * 12.0);
+            draw.sprite(
+                sprites.spark[Hue::Green.index()][usize::from(i < 4) + usize::from(i < 2)],
+                at,
+                Z_BULLETS - 1,
+            );
         }
     }
 
@@ -183,21 +207,30 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
     }
     if p.charge > 0.0 && matches!(game.state, State::Playing | State::Paused) {
         let boosted = p.heat >= CHARGE_BOOST_HEAT;
-        let frames = &sprites.charged[usize::from(boosted)];
-        let k = (p.charge * (frames.len() - 1) as f32).round() as usize;
-        draw.sprite(
-            frames[k.min(frames.len() - 1)],
-            p.pos + V2::from_angle(p.aim) * 28.0,
-            Z_PLAYER + 1,
-        );
-        // Sparks converge on the muzzle as the gun charges.
+        let bfg = p.weapon == Weapon::Plasma && !p.charge_spin;
         let muzzle = p.pos + V2::from_angle(p.aim) * 28.0;
+        if bfg {
+            draw_bfg(
+                draw,
+                sprites,
+                muzzle,
+                24.0 + p.charge * 56.0,
+                game.time,
+                Z_PLAYER + 1,
+            );
+        } else {
+            let frames = &sprites.charged[usize::from(boosted)];
+            let k = (p.charge * (frames.len() - 1) as f32).round() as usize;
+            draw.sprite(frames[k.min(frames.len() - 1)], muzzle, Z_PLAYER + 1);
+        }
+        // Sparks converge on the muzzle as the gun charges.
         for i in 0..12 {
             let t = (game.time * 2.0 + i as f32 / 12.0).fract();
             let at = muzzle
                 + V2::from_angle(i as f32 * TAU / 12.0 + game.time)
                     * (18.0 + (1.0 - t) * (25.0 + 65.0 * p.charge));
-            draw.sprite(sprites.spark[Hue::Cyan.index()][1], at, Z_PLAYER + 1);
+            let hue = if bfg { Hue::Green } else { Hue::Cyan };
+            draw.sprite(sprites.spark[hue.index()][1], at, Z_PLAYER + 1);
         }
         if boosted {
             draw_world_text(
@@ -309,6 +342,19 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
         }
         draw_world_text(draw, sprites, size, hue, &p.text, p.pos);
     }
+}
+
+fn draw_bfg(draw: &mut Draw, sprites: &Sprites, pos: V2, radius: f32, time: f32, z: i32) {
+    let k = ((radius - 24.0) / 56.0 * (sprites.bfg.len() - 1) as f32).round() as usize;
+    draw.sprite(sprites.bfg[k.min(sprites.bfg.len() - 1)], pos, z);
+    for i in 0..10 {
+        let angle = time * 3.0 + i as f32 * TAU / 10.0;
+        let pulse = 0.88 + 0.12 * (time * 21.0 + i as f32 * 2.3).sin();
+        let at = pos + V2::from_angle(angle) * (radius * pulse);
+        let hue = if i % 3 == 0 { Hue::White } else { Hue::Green };
+        draw.sprite(sprites.spark[hue.index()][2], at, z + 1);
+    }
+    draw.sprite(sprites.spark[Hue::White.index()][2], pos, z + 1);
 }
 
 pub(super) fn draw_boss(draw: &mut Draw, sprites: &Sprites, game: &Game, b: &crate::game::Boss) {

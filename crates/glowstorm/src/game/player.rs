@@ -8,6 +8,7 @@ pub enum Weapon {
     Default,
     Sniper,
     Rocket,
+    Plasma,
 }
 
 impl Weapon {
@@ -16,6 +17,7 @@ impl Weapon {
             Self::Default => "1 GUN",
             Self::Sniper => "2 SNIPER",
             Self::Rocket => "3 ROCKET",
+            Self::Plasma => "4 PLASMA",
         }
     }
 }
@@ -189,6 +191,8 @@ impl Game {
     }
 
     pub(super) fn update_player(&mut self, dt: f32, input: &Input, view: &View) {
+        let power = self.power();
+        let mut flashes = Vec::new();
         // Half of the damage edge also goes into gun cooling.
         let cooling_boost = 1.0 + (self.power() - 1.0) / 2.0;
         let dash_cooldown = self.dash_cooldown();
@@ -198,6 +202,7 @@ impl Game {
             sfx,
             ghosts,
             bullets,
+            bfgs,
             gatling,
             rng,
             cam,
@@ -318,7 +323,8 @@ impl Game {
             p.vel.y = 0.0;
         }
 
-        p.fire_cd -= dt;
+        // Idle time never banks a burst of shots for the next press.
+        p.fire_cd = p.fire_cd.max(0.0) - dt;
         let cooling = if p.overheated {
             OVERHEAT_COOLING
         } else {
@@ -389,6 +395,23 @@ impl Game {
                 p.roll_hold = None;
                 p.charge_spin = false;
                 sfx.push(Sfx::Dash);
+            } else if p.weapon == Weapon::Plasma {
+                let dir = V2::from_angle(p.aim);
+                let multiplier = damage / (1.0 + 2.0 * p.charge);
+                bfgs.push(Bfg::new(
+                    p.pos + dir * 26.0,
+                    dir * 560.0 * if boosted { 1.35 } else { 1.0 },
+                    p.charge,
+                    (120.0 + 360.0 * p.charge) * multiplier * power,
+                    1600.0
+                        * if p.upgrades.level(Upgrade::Range) >= 2 {
+                            1.25
+                        } else {
+                            1.0
+                        },
+                ));
+                p.vel += -dir * (40.0 + 60.0 * p.charge);
+                sfx.push(Sfx::Bfg);
             } else if p.weapon == Weapon::Rocket {
                 let count = (p.charge * 10.0).ceil().clamp(1.0, 10.0) as usize;
                 for i in 0..count {
@@ -397,6 +420,7 @@ impl Game {
                     bullets.push(Bullet {
                         pos: p.pos + dir * 25.0,
                         prev: p.pos,
+                        delay: 0.0,
                         vel: dir * ROCKET_SPEED * if boosted { 1.35 } else { 1.0 },
                         traveled: 0.0,
                         range: ROCKET_RANGE
@@ -450,19 +474,32 @@ impl Game {
             }
         }
         let firing = input.fire;
-        if firing && gatling.is_none() && !charging && !release && p.fire_cd <= 0.0 && !p.overheated
+        while firing
+            && gatling.is_none()
+            && !charging
+            && !release
+            && p.fire_cd <= 0.0
+            && !p.overheated
         {
             let rapid = p.rapid_t > 0.0;
             let sniper = p.weapon == Weapon::Sniper;
             let rocket = p.weapon == Weapon::Rocket;
-            let interval = if rocket {
+            let plasma = p.weapon == Weapon::Plasma;
+            let delay = if plasma {
+                (dt + p.fire_cd).max(0.0)
+            } else {
+                0.0
+            };
+            let interval = if plasma {
+                0.025
+            } else if rocket {
                 0.65
             } else if sniper {
                 0.5
             } else {
                 0.11
             } * if rapid { 0.5 } else { 1.0 };
-            p.fire_cd = (p.fire_cd + interval).max(0.0);
+            p.fire_cd += interval;
             // Rapid fire shoots twice as often for the same heat per second.
             let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
             p.heat += coolant
@@ -471,7 +508,9 @@ impl Game {
                 } else {
                     HEAT_PER_SHOT
                 }
-                * if rocket {
+                * if plasma {
+                    0.36
+                } else if rocket {
                     4.0
                 } else if sniper {
                     3.0
@@ -495,7 +534,9 @@ impl Game {
             let muzzle = p.pos + dir * 22.0;
             // Long Range: level 1 removes damage falloff, level 2 adds reach.
             let long_range = p.upgrades.level(Upgrade::Range);
-            let range = if rocket {
+            let range = if plasma {
+                1200.0
+            } else if rocket {
                 ROCKET_RANGE
             } else if sniper {
                 1800.0
@@ -519,7 +560,9 @@ impl Game {
             for &(offset, damage) in pattern {
                 let d = V2::from_angle(aim + offset);
                 let recoil = damage
-                    * if rocket {
+                    * if plasma {
+                        0.75
+                    } else if rocket {
                         8.0
                     } else if sniper {
                         6.0
@@ -527,7 +570,9 @@ impl Game {
                         1.0
                     };
                 let damage = damage
-                    * if rocket {
+                    * if plasma {
+                        PLASMA_DAMAGE
+                    } else if rocket {
                         22.0
                     } else if sniper {
                         SNIPER_DAMAGE
@@ -537,7 +582,10 @@ impl Game {
                 bullets.push(Bullet {
                     pos: muzzle,
                     prev: p.pos,
-                    vel: d * if rocket {
+                    delay,
+                    vel: d * if plasma {
+                        1650.0
+                    } else if rocket {
                         ROCKET_SPEED
                     } else {
                         BULLET_SPEED * if sniper { 4.0 } else { 1.0 }
@@ -554,14 +602,22 @@ impl Game {
                 });
                 p.vel += -d * 9.0 * recoil;
             }
-            sfx.push(if rocket {
+            sfx.push(if plasma {
+                Sfx::Plasma
+            } else if rocket {
                 Sfx::BossBlast
             } else if sniper {
                 Sfx::Sniper
             } else {
                 Sfx::Shoot
             });
-            let vel = p.vel;
+            flashes.push((muzzle, dir, p.vel));
+            if !plasma {
+                p.fire_cd = p.fire_cd.max(0.0);
+                break;
+            }
+        }
+        for (muzzle, dir, vel) in flashes {
             for _ in 0..2 {
                 let v = vel + (dir * 260.0 + self.rng.dir() * 120.0);
                 self.emit(muzzle, v, 0.12, Hue::White, 0);
