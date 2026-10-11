@@ -344,120 +344,137 @@ impl Game {
         let enemies = &mut self.enemies;
         let boss = &mut self.boss;
         let orbs = &mut self.orbs;
+        let rng = &mut self.rng;
         self.bullets.retain_mut(|b| {
-            b.prev = b.pos;
-            let step = b.vel * dt;
-            let distance = step.len();
-            let mut flight = if distance > 0.0 {
-                ((b.range - b.traveled) / distance).clamp(0.0, 1.0)
-            } else {
-                1.0
-            };
-            for (pos, delta, edge) in [(b.pos.x, step.x, size.x), (b.pos.y, step.y, size.y)] {
-                if delta != 0.0 {
-                    let wall = if delta > 0.0 { edge - WALL } else { WALL };
-                    flight = flight.min(((wall - pos) / delta).clamp(0.0, 1.0));
+            let mut elapsed = 0.0;
+            loop {
+                b.prev = b.pos;
+                let step = b.vel * (dt * (1.0 - elapsed));
+                let distance = step.len();
+                let mut flight = if distance > 0.0 {
+                    ((b.range - b.traveled) / distance).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                for (pos, delta, edge) in [(b.pos.x, step.x, size.x), (b.pos.y, step.y, size.y)] {
+                    if delta != 0.0 {
+                        let wall = if delta > 0.0 { edge - WALL } else { WALL };
+                        flight = flight.min(((wall - pos) / delta).clamp(0.0, 1.0));
+                    }
                 }
-            }
-            b.pos += step * flight;
-            b.traveled += (b.pos - b.prev).len();
-            // Relative motion tests where both cores are at the same time, excluding glow.
-            let interception = orbs
-                .iter()
-                .enumerate()
-                .filter_map(|(i, o)| {
-                    segment_hit(
-                        V2::default(),
-                        b.prev - o.prev,
-                        b.pos - (o.prev + (o.pos - o.prev) * flight),
-                        o.radius() + 2.0,
-                    )
-                    .filter(|t| {
-                        let at = o.prev + (o.pos - o.prev) * (*t * flight);
-                        o.life + dt >= *t * flight * dt
-                            && at.x > WALL
-                            && at.y > WALL
-                            && at.x < size.x - WALL
-                            && at.y < size.y - WALL
+                let end = b.pos + step * flight;
+                let end_time = elapsed + (1.0 - elapsed) * flight;
+                // Relative motion tests where both cores are at the same time, excluding glow.
+                let interception = orbs
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, o)| {
+                        segment_hit(
+                            V2::default(),
+                            b.prev - (o.prev + (o.pos - o.prev) * elapsed),
+                            end - (o.prev + (o.pos - o.prev) * end_time),
+                            o.radius() + 2.0,
+                        )
+                        .filter(|t| {
+                            let time = elapsed + (end_time - elapsed) * *t;
+                            let at = o.prev + (o.pos - o.prev) * time;
+                            o.life + dt >= time * dt
+                                && at.x > WALL
+                                && at.y > WALL
+                                && at.x < size.x - WALL
+                                && at.y < size.y - WALL
+                        })
+                        .map(|t| (i, t))
                     })
-                    .map(|t| (i, t))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            let boss_hit = boss
-                .as_ref()
-                .filter(|_| !b.hit_ids.contains(&0))
-                .and_then(|boss| segment_hit(boss.pos, b.prev, b.pos, BOSS_RADIUS + 5.0));
-            let barrier = interception.map_or(1.0, |(_, t)| t);
-            let mut targets: Vec<_> = enemies
-                .iter()
-                .enumerate()
-                .filter(|(_, e)| e.hp > 0.0 && !b.hit_ids.contains(&e.id))
-                .filter_map(|(i, e)| {
-                    segment_hit(e.pos, b.prev, b.pos, e.kind.radius() + 5.0)
-                        .filter(|t| *t <= barrier)
-                        .map(|t| (Some(i), t))
-                })
-                .collect();
-            if let Some(t) = boss_hit.filter(|t| *t <= barrier) {
-                targets.push((None, t));
-            }
-            targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
-            for (i, _) in targets {
-                let Some(i) = i else {
-                    let boss = boss.as_mut().unwrap();
-                    let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
-                    let damage = if boss.entering > 0.0 {
-                        0.0
-                    } else {
-                        b.strength() * power
+                    .min_by(|a, b| a.1.total_cmp(&b.1));
+                let boss_hit = boss
+                    .as_ref()
+                    .filter(|_| !b.hit_ids.contains(&0))
+                    .and_then(|boss| segment_hit(boss.pos, b.prev, end, BOSS_RADIUS + 5.0));
+                let barrier = interception.map_or(1.0, |(_, t)| t);
+                b.pos = b.prev + (end - b.prev) * barrier;
+                b.traveled += (b.pos - b.prev).len();
+                let mut targets: Vec<_> = enemies
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.hp > 0.0 && !b.hit_ids.contains(&e.id))
+                    .filter_map(|(i, e)| {
+                        segment_hit(e.pos, b.prev, end, e.kind.radius() + 5.0)
+                            .filter(|t| *t <= barrier)
+                            .map(|t| (Some(i), t))
+                    })
+                    .collect();
+                if let Some(t) = boss_hit.filter(|t| *t <= barrier) {
+                    targets.push((None, t));
+                }
+                targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+                for (i, _) in targets {
+                    let Some(i) = i else {
+                        let boss = boss.as_mut().unwrap();
+                        let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
+                        let damage = if boss.entering > 0.0 {
+                            0.0
+                        } else {
+                            b.strength() * power
+                        };
+                        boss.hp -= damage;
+                        boss.stagger(damage);
+                        boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
+                        boss.flash = 0.05;
+                        hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
+                        if b.weapon != Weapon::Sniper || boss.entering > 0.0 {
+                            return false;
+                        }
+                        b.hit_ids.push(0);
+                        b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
+                        continue;
                     };
-                    boss.hp -= damage;
-                    boss.stagger(damage);
-                    boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
-                    boss.flash = 0.05;
-                    hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
-                    if b.weapon != Weapon::Sniper || boss.entering > 0.0 {
+                    let e = &mut enemies[i];
+                    let damage = b.strength() * power;
+                    e.hp -= damage;
+                    e.stagger(damage);
+                    e.flash = 0.07;
+                    let knock = e.kind.spec().knockback;
+                    e.impulse += b.vel * (knock * damage / BULLET_SPEED);
+                    hits.push((
+                        e.pos - b.vel.norm() * e.kind.radius(),
+                        b.vel,
+                        e.kind.hue(),
+                        damage,
+                    ));
+                    if b.weapon == Weapon::Sniper {
+                        b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
+                    } else if b.pierce == 0 {
+                        return false;
+                    } else {
+                        b.pierce -= 1;
+                    }
+                    b.hit_ids.push(e.id);
+                }
+                if let Some((i, t)) = interception {
+                    orbs.swap_remove(i);
+                    hits.push((b.pos, b.vel, Hue::Red, 0.5));
+                    if b.weapon != Weapon::Sniper {
                         return false;
                     }
-                    b.hit_ids.push(0);
-                    b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
+                    // Re-sweep the remaining flight from contact, with orbs at that same time.
+                    elapsed += (end_time - elapsed) * t;
+                    let angle = b.vel.angle() + rng.range(-TAU / 12.0, TAU / 12.0);
+                    b.vel = V2::from_angle(angle) * b.vel.len();
                     continue;
-                };
-                let e = &mut enemies[i];
-                let damage = b.strength() * power;
-                e.hp -= damage;
-                e.stagger(damage);
-                e.flash = 0.07;
-                let knock = e.kind.spec().knockback;
-                e.impulse += b.vel * (knock * damage / BULLET_SPEED);
-                hits.push((
-                    e.pos - b.vel.norm() * e.kind.radius(),
-                    b.vel,
-                    e.kind.hue(),
-                    damage,
-                ));
-                if b.weapon == Weapon::Sniper {
-                    b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
-                } else if b.pierce == 0 {
-                    return false;
-                } else {
-                    b.pierce -= 1;
                 }
-                b.hit_ids.push(e.id);
+                let lo = WALL;
+                if b.pos.x <= lo
+                    || b.pos.y <= lo
+                    || b.pos.x >= size.x - lo
+                    || b.pos.y >= size.y - lo
+                {
+                    wall_hits.push(b.pos);
+                    return false;
+                }
+                // A clipped step expires even if rounding leaves its endpoint short of the limit.
+                return flight >= 1.0 && b.traveled < b.range;
             }
-            if let Some((i, t)) = interception {
-                let at = b.prev + (b.pos - b.prev) * t;
-                orbs.swap_remove(i);
-                hits.push((at, b.vel, Hue::Red, 0.5));
-                return false;
-            }
-            let lo = WALL;
-            if b.pos.x <= lo || b.pos.y <= lo || b.pos.x >= size.x - lo || b.pos.y >= size.y - lo {
-                wall_hits.push(b.pos);
-                return false;
-            }
-            // A clipped step expires even if rounding leaves its endpoint short of the limit.
-            flight >= 1.0 && b.traveled < b.range
         });
         // Keep the final sweep of escaping or expiring orbs available for interception.
         self.orbs.retain(|o| {

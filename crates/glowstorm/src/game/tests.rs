@@ -213,7 +213,7 @@ fn boss_stagger_pauses_attacks_then_recovers_and_still_allows_death() {
 }
 
 #[test]
-fn sniper_pierces_a_boss_in_order_and_stops_at_enemy_bullets() {
+fn sniper_pierces_a_boss_in_order_before_deflecting_off_enemy_bullets() {
     let view = View {
         scale: 1.0,
         size: v2(1600.0, 900.0),
@@ -228,7 +228,7 @@ fn sniper_pierces_a_boss_in_order_and_stops_at_enemy_bullets() {
     boss.pos = at + v2(180.0, 0.0);
     boss.entering = 0.0;
     boss.hp = 100.0;
-    for x in [320.0, 65.0] {
+    for x in [600.0, 65.0] {
         game.add_enemy(Kind::Tank, at + v2(x, 0.0), V2::default(), true);
         game.enemies.last_mut().unwrap().hp = 100.0;
     }
@@ -246,7 +246,137 @@ fn sniper_pierces_a_boss_in_order_and_stops_at_enemy_bullets() {
     assert!((game.enemies[1].hp - 94.0).abs() < 1e-4);
     assert!((game.boss.as_ref().unwrap().hp - 96.1).abs() < 1e-4);
     assert_eq!(game.enemies[0].hp, 100.0);
-    assert!(game.orbs.is_empty() && game.bullets.is_empty());
+    assert!(game.orbs.is_empty());
+    assert_eq!(game.bullets.len(), 1);
+    assert!(game.bullets[0].vel.angle().abs() <= TAU / 12.0);
+    assert!((game.bullets[0].damage - 6.0 * 0.65 * 0.65).abs() < 1e-5);
+}
+
+#[test]
+fn sniper_clears_enemy_bullets_and_continues_without_losing_speed_or_power() {
+    for heavy in [false, true] {
+        let mut game = Game::new(7);
+        game.bullets.push(Bullet {
+            pos: v2(300.0, 300.0),
+            prev: v2(300.0, 300.0),
+            vel: v2(5000.0, 0.0),
+            traveled: 0.0,
+            range: 1800.0,
+            damage: 6.0,
+            pierce: 0,
+            hit_ids: Vec::new(),
+            weapon: Weapon::Sniper,
+            falloff: false,
+        });
+        game.add_orb(v2(400.0, 300.0), V2::default());
+        game.orbs[0].heavy = heavy;
+        game.update_bullets(0.1);
+        assert!(game.orbs.is_empty());
+        assert_eq!(game.bullets.len(), 1);
+        let b = &game.bullets[0];
+        assert!(b.vel.angle().abs() > 0.001 && b.vel.angle().abs() <= TAU / 12.0);
+        assert!((b.vel.len() - 5000.0).abs() < 0.001);
+        assert!((b.traveled - 500.0).abs() < 0.001);
+        assert!(
+            b.pos.x > 700.0,
+            "flight continues for the rest of the frame"
+        );
+        assert_eq!(b.damage, 6.0);
+        assert!(b.hit_ids.is_empty());
+        assert!(game.sfx.contains(&Sfx::Hit) && !game.particles.is_empty());
+    }
+}
+
+#[test]
+fn sniper_resweeps_multiple_deflections_and_only_hits_ships_on_its_new_path() {
+    let mut game = Game::new(7);
+    for _ in 0..2 {
+        game.add_enemy(Kind::Tank, v2(700.0, 300.0), V2::default(), true);
+        game.enemies.last_mut().unwrap().hp = 100.0;
+    }
+    let mut rng = Rng(game.rng.0);
+    let angle1 = rng.range(-TAU / 12.0, TAU / 12.0);
+    let angle2 = angle1 + rng.range(-TAU / 12.0, TAU / 12.0);
+    let dir1 = V2::from_angle(angle1);
+    let dir2 = V2::from_angle(angle2);
+    let contact1 = v2(389.0, 300.0);
+    let contact2 = contact1 + dir1 * 89.0;
+    game.enemies[1].pos = contact2 + dir2 * 120.0;
+    game.bullets.push(Bullet {
+        pos: v2(300.0, 300.0),
+        prev: v2(300.0, 300.0),
+        vel: v2(5000.0, 0.0),
+        traveled: 0.0,
+        range: 1800.0,
+        damage: 6.0,
+        pierce: 0,
+        hit_ids: Vec::new(),
+        weapon: Weapon::Sniper,
+        falloff: false,
+    });
+    // Reverse storage order so the first interception must be chosen by time.
+    game.add_orb(contact1 + dir1 * 100.0, V2::default());
+    game.add_orb(v2(400.0, 300.0), V2::default());
+    game.update_bullets(0.1);
+    assert!(game.orbs.is_empty());
+    let b = &game.bullets[0];
+    assert!((b.vel.angle() - angle2).abs() < 1e-5);
+    assert!((b.pos - (contact2 + dir2 * 322.0)).len() < 0.01);
+    assert!((b.traveled - 500.0).abs() < 0.001);
+    assert_eq!(game.enemies[0].hp, 100.0, "old flight path is discarded");
+    assert_eq!(
+        game.enemies[1].hp, 94.0,
+        "deflected flight still hits ships"
+    );
+    assert_eq!(b.hit_ids, vec![game.enemies[1].id]);
+}
+
+#[test]
+fn sniper_deflected_sweep_tracks_moving_orbs_and_still_expires() {
+    for fps in [30, 60, 144] {
+        for wall in [false, true] {
+            for offset in [0.0, 150.0] {
+                let mut game = Game::new(7);
+                if wall {
+                    game.arena_size.x = 650.0;
+                }
+                let mut rng = Rng(game.rng.0);
+                let dir = V2::from_angle(rng.range(-TAU / 12.0, TAU / 12.0));
+                let contact = v2(389.0, 300.0);
+                let cross_time = (89.0 + 100.0) / 5000.0;
+                game.bullets.push(Bullet {
+                    pos: v2(300.0, 300.0),
+                    prev: v2(300.0, 300.0),
+                    vel: v2(5000.0, 0.0),
+                    traveled: 0.0,
+                    range: if wall { 1800.0 } else { 400.0 },
+                    damage: 6.0,
+                    pierce: 0,
+                    hit_ids: Vec::new(),
+                    weapon: Weapon::Sniper,
+                    falloff: false,
+                });
+                game.add_orb(v2(400.0, 300.0), V2::default());
+                game.add_orb(
+                    contact + dir * 100.0 - v2(0.0, 1000.0 * cross_time + offset),
+                    v2(0.0, 1000.0),
+                );
+                for _ in 0..fps / 10 + 1 {
+                    game.update_enemies(1.0 / fps as f32);
+                    game.update_bullets(1.0 / fps as f32);
+                }
+                assert!(
+                    game.bullets.is_empty(),
+                    "range or wall still expires at {fps} fps, wall {wall}"
+                );
+                assert_eq!(
+                    game.orbs.len(),
+                    usize::from(offset > 0.0),
+                    "intercept uses matching times at {fps} fps"
+                );
+            }
+        }
+    }
 }
 
 #[test]

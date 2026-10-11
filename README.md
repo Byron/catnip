@@ -74,6 +74,8 @@ elongated shots travel four times faster, fire every half second, and start with
 six times the damage. Rounds pierce ships, including the boss, losing 35% of their
 remaining damage with each hit. Piercing upgrades reduce that loss by 10 percentage
 points per level; Spread, Long Range, Coolant, and Rapid still apply.
+Sniper rounds also destroy enemy bullets without being consumed. Each interception
+randomly deflects the round by up to 30 degrees, preserving its speed and damage.
 Both main weapons share heat and firing cooldown. Press **1** to switch back.
 Heavy projectile hits stun enemies: they stop attacking, slow to a drift, and
 tumble with yellow sparks before recovering. A full sniper hit stuns for about
@@ -94,8 +96,8 @@ again. Both weapons share heat. Regular fire and charging wait until the barrage
 finishes; Coolant extends the charging time.
 Every bullet pushes its target along its flight direction, including bosses.
 Repeated impacts build momentum, while firing gives your ship a little recoil.
-Direct hits from either weapon destroy enemy bullets, including tank volleys
-and boss shots, consuming your bullet too.
+Direct hits destroy enemy bullets, including tank volleys and boss shots.
+Normal and gatling shots are consumed too; sniper rounds keep flying with a deflection.
 
 Right click, Space or R starts an immediate forward barrel roll, spending a dash
 charge. Release within 0.18 seconds for evasion; keep holding to charge the
