@@ -3,6 +3,116 @@
 use super::*;
 
 #[test]
+fn perfect_cooling_allows_continuous_fire_and_forward_or_reverse_boost() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for weapon in [
+        Weapon::Default,
+        Weapon::Sniper,
+        Weapon::Rocket,
+        Weapon::Plasma,
+    ] {
+        for key in ['d', 'a'] {
+            let mut game = Game::new(7);
+            game.dev.perfect_cooling = true;
+            game.player.weapon = weapon;
+            game.player.heat = 1.0;
+            game.player.overheated = true;
+            game.player.aim = 0.0;
+            let input = Input {
+                held: [KeyCode::Char(key)].into(),
+                mouse: Some(game.player.pos + v2(10000.0, 0.0)),
+                boost: true,
+                fire: true,
+                ..Input::default()
+            };
+            let mut shots = 0;
+            for _ in 0..300 {
+                game.update_player(1.0 / 60.0, &input, &view);
+                assert_eq!(game.player.heat, 0.0);
+                assert!(!game.player.overheated && game.player.thrust.abs() > 0.9);
+                assert!(!game.sfx.contains(&Sfx::Overheat));
+                shots += game.bullets.len();
+                game.bullets.clear();
+                game.sfx.clear();
+            }
+            let minimum = match weapon {
+                Weapon::Default => 45,
+                Weapon::Sniper => 10,
+                Weapon::Rocket => 8,
+                Weapon::Plasma => 200,
+            };
+            assert!(shots >= minimum, "{weapon:?}: only {shots} shots");
+        }
+    }
+}
+
+#[test]
+fn perfect_cooling_charges_every_weapon_and_spin_without_forcing_discharge() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for spin in [false, true] {
+        for weapon in [
+            Weapon::Default,
+            Weapon::Sniper,
+            Weapon::Rocket,
+            Weapon::Plasma,
+        ] {
+            let mut game = Game::new(7);
+            game.dev.perfect_cooling = true;
+            game.player.weapon = weapon;
+            game.player.charge_spin = spin;
+            let held = Input {
+                charge: !spin,
+                spin,
+                ..Input::default()
+            };
+            for _ in 0..180 {
+                game.update_player(1.0 / 60.0, &held, &view);
+                assert_eq!(game.player.heat, 0.0);
+                assert!(!game.player.overheated && !game.player.charge_blocked);
+                assert!(
+                    game.bullets.is_empty()
+                        && game.bfgs.is_empty()
+                        && game.gatling.is_none()
+                        && game.player.spin.is_none()
+                );
+            }
+            assert_eq!(game.player.charge, 1.0);
+            game.update_player(0.0, &Input::default(), &view);
+            assert_eq!(game.player.charge, 0.0);
+            assert_eq!(game.player.heat, 0.0);
+            assert!(!game.player.overheated && !game.player.charge_blocked);
+            if spin {
+                let attack = game.player.spin.as_ref().unwrap();
+                assert_eq!(attack.damage, 3.0);
+                assert!(!attack.boosted);
+            } else {
+                match weapon {
+                    Weapon::Default | Weapon::Sniper => {
+                        let attack = game.gatling.as_ref().unwrap();
+                        assert!(!attack.boosted);
+                        assert_eq!(
+                            attack.damage,
+                            if weapon == Weapon::Sniper { 18.0 } else { 3.0 }
+                        );
+                    }
+                    Weapon::Rocket => {
+                        assert_eq!(game.bullets.len(), 10);
+                        assert!(game.bullets.iter().all(|b| b.damage == 30.0));
+                    }
+                    Weapon::Plasma => assert_eq!(game.bfgs[0].damage, 480.0),
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn plasma_slot_fires_a_dense_stream_at_low_and_high_frame_rates() {
     let view = View {
         scale: 1.0,

@@ -191,6 +191,11 @@ impl Game {
     }
 
     pub(super) fn update_player(&mut self, dt: f32, input: &Input, view: &View) {
+        let perfect_cooling = self.dev.perfect_cooling;
+        if perfect_cooling {
+            self.player.heat = 0.0;
+            self.player.overheated = false;
+        }
         let power = self.power();
         let mut flashes = Vec::new();
         // Half of the damage edge also goes into gun cooling.
@@ -358,7 +363,9 @@ impl Game {
         }
         let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
         let thrust_heat = p.thrust.abs() * if p.thrust > 0.0 { 0.8 } else { 0.6 };
-        p.heat = (p.heat + thrust_heat * coolant * dt).min(1.0);
+        if !perfect_cooling {
+            p.heat = (p.heat + thrust_heat * coolant * dt).min(1.0);
+        }
         if p.heat >= 1.0 && p.charge == 0.0 && !p.overheated {
             p.overheated = true;
             sfx.push(Sfx::Overheat);
@@ -374,7 +381,9 @@ impl Game {
         {
             let heat = (CHARGE_HEAT * coolant / cooling_boost * dt).min(1.0 - p.heat);
             p.charge = (p.charge + heat).min(1.0);
-            p.heat = (p.heat + heat).min(1.0);
+            if !perfect_cooling {
+                p.heat = (p.heat + heat).min(1.0);
+            }
         }
         let forced = p.charge > 0.0 && p.heat >= 1.0;
         if release || forced {
@@ -502,7 +511,7 @@ impl Game {
             p.fire_cd += interval;
             // Rapid fire shoots twice as often for the same heat per second.
             let coolant = 1.0 - 0.25 * f32::from(p.upgrades.level(Upgrade::Coolant));
-            p.heat += coolant
+            p.heat += if perfect_cooling { 0.0 } else { coolant }
                 * if rapid {
                     HEAT_PER_SHOT / 2.0
                 } else {

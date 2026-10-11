@@ -114,6 +114,7 @@ struct DevFlags {
     god: bool,
     /// `GLOWSTORM_CARDS=1`: open the upgrade screen right away.
     cards: bool,
+    perfect_cooling: bool,
 }
 
 impl DevFlags {
@@ -126,6 +127,7 @@ impl DevFlags {
                 .max(1),
             god: std::env::var_os("GLOWSTORM_GOD").is_some(),
             cards: std::env::var_os("GLOWSTORM_CARDS").is_some(),
+            perfect_cooling: std::env::var_os("GLOWSTORM_PERFECT_COOLING").is_some(),
         }
     }
 }
@@ -356,7 +358,10 @@ impl Game {
                         self.best = self.score;
                         self.new_best = true;
                         // Dev runs (skipped waves, god mode) don't count.
-                        let dev_run = self.dev.first_wave > 1 || self.dev.god || self.dev.cards;
+                        let dev_run = self.dev.first_wave > 1
+                            || self.dev.god
+                            || self.dev.cards
+                            || self.dev.perfect_cooling;
                         if let Some(path) = self.best_path.as_ref().filter(|_| !dev_run) {
                             if let Some(dir) = path.parent() {
                                 let _ = std::fs::create_dir_all(dir);

@@ -241,6 +241,9 @@ cargo clippy --workspace --all-targets
 `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` prevents death but keeps hit reactions, and
 `GLOWSTORM_CARDS=1` opens the upgrade screen right away, and `GLOWSTORM_SCALE=0.8`
 forces a render scale (0.3–2.2).
+`GLOWSTORM_PERFECT_COOLING=1` removes all gun, charge, and thrust heat, allowing
+continuous fire and boost. Charged weapons still fill normally, then hold full
+charge until released, without an overheat penalty or heat timing bonus.
 Runs with any of them set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
 
 ## License
