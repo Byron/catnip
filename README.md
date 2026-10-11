@@ -93,7 +93,9 @@ across the entire screen with no range limit, becoming thinner as their power
 fades. They rotate at half a turn per second (0.8 with the timing bonus) and
 destroy enemy bullets they touch;
 the close shield reflects bullets back as friendly shots. Ship contact deals
-heavy damage and pushes enemies away, with no damage or recoil to your ship.
+heavy damage and pushes enemies away. You keep normal movement control throughout
+the laser spin and can take damage with normal knockback and hit grace; hits do
+not cancel the laser.
 Landing inside enemy ships destroys all overlapping ships (including the boss)
 and costs one heart, even during hit grace.
 

@@ -128,6 +128,8 @@ impl Game {
         };
         let (from, at, active, landed) =
             (spin.from, self.player.pos, spin.active, spin.life <= 0.0);
+        let flight = if dt > 0.0 { active / dt } else { 0.0 };
+        let at = from + (at - from) * flight;
         let mut shots = Vec::new();
         spin.fire_cd -= active;
         if spin.fire_cd <= 0.0 && active > 0.0 {
@@ -220,7 +222,6 @@ impl Game {
                 hit = true;
             }
         }
-        let flight = if dt > 0.0 { active / dt } else { 0.0 };
         let mut reflected_at = Vec::new();
         self.orbs.retain(|orb| {
             if active <= 0.0 {
@@ -286,7 +287,6 @@ impl Game {
         }
         if landed {
             self.player.spin = None;
-            self.player.vel = self.player.vel * 0.35;
             let (crushed, alive): (Vec<_>, Vec<_>) = self
                 .enemies
                 .drain(..)

@@ -201,10 +201,10 @@ fn star_charge_honors_shared_heat_coolant_and_overheat_lock() {
 }
 
 #[test]
-fn spinning_ship_is_immune_but_contact_damages_and_pushes_enemies_and_boss() {
+fn spinning_ship_takes_contact_damage_without_interrupting_its_attack() {
     let mut game = Game::new(7);
     game.state = State::Playing;
-    game.player.vel = v2(-SPIN_SPEED, 0.0);
+    game.player.vel = v2(-300.0, 0.0);
     game.player.spin = Some(Spin {
         life: 0.5,
         active: 0.02,
@@ -224,8 +224,103 @@ fn spinning_ship_is_immune_but_contact_damages_and_pushes_enemies_and_boss() {
     assert!(game.enemies[0].impulse.x > 100.0);
     assert!(game.boss.as_ref().unwrap().hp < boss_hp - 3.0);
     assert!(game.boss.as_ref().unwrap().impulse.x > 100.0);
-    assert_eq!(game.player.vel, v2(-SPIN_SPEED, 0.0));
-    assert_eq!(game.player.hp, player_hp);
+    assert_eq!(game.player.vel, v2(-700.0, 0.0));
+    assert_eq!(game.player.hp, player_hp - 1);
+    assert_eq!(game.player.spin.as_ref().unwrap().life, 0.5);
+    game.player_collisions();
+    assert_eq!(
+        game.player.hp,
+        player_hp - 1,
+        "normal hit grace still applies"
+    );
+    let hp = game.enemies[0].hp;
+    game.update_spin(0.02);
+    assert!(game.enemies[0].hp < hp);
+    assert!(game.player.spin.is_some());
+}
+
+#[test]
+fn laser_spin_uses_normal_movement_from_discharge_through_expiry() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for boosted in [false, true] {
+        let mut normal = Game::new(7);
+        let mut spinning = Game::new(7);
+        normal.player.vel = v2(120.0, -40.0);
+        spinning.player.vel = normal.player.vel;
+        spinning.player.charge = 0.5;
+        spinning.player.heat = if boosted { 0.95 } else { 0.5 };
+        spinning.player.charge_spin = true;
+        for keys in ["w", "a", "s", "d", "", ""] {
+            let input = Input {
+                held: keys.chars().map(KeyCode::Char).collect(),
+                mouse: Some(normal.player.pos + v2(100.0, 100.0)),
+                ..Input::default()
+            };
+            normal.update_player(0.2, &input, &view);
+            spinning.update_player(0.2, &input, &view);
+            spinning.update_spin(0.2);
+            assert_eq!(spinning.player.vel, normal.player.vel);
+            assert_eq!(spinning.player.pos, normal.player.pos);
+            assert_eq!(spinning.player.aim, normal.player.aim);
+        }
+        assert!(spinning.player.spin.is_none());
+    }
+}
+
+#[test]
+fn expired_laser_only_interacts_along_the_active_part_of_movement() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.player.vel = v2(2000.0, 0.0);
+    game.player.spin = Some(Spin {
+        life: 0.001,
+        ..Spin::new(1.0, false, 1.0, game.player.pos, 0.0)
+    });
+    game.add_orb(game.player.pos + v2(100.0, 25.0), V2::default());
+    game.update_player(0.1, &Input::default(), &view);
+    game.update_spin(0.1);
+    assert!(game.player.spin.is_none());
+    assert_eq!(game.orbs.len(), 1, "reflection ends when the laser expires");
+}
+
+#[test]
+fn laser_spin_can_take_bullet_boss_and_shockwave_hits() {
+    for hazard in 0..3 {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
+        let at = game.player.pos + v2(20.0, 0.0);
+        match hazard {
+            0 => game.orbs.push(Orb {
+                pos: at,
+                prev: at,
+                vel: V2::default(),
+                life: 1.0,
+                heavy: false,
+            }),
+            1 => {
+                game.spawn_boss();
+                let boss = game.boss.as_mut().unwrap();
+                boss.pos = at;
+                boss.entering = 0.0;
+            }
+            _ => game.shockwaves.push(Shockwave {
+                pos: at,
+                r: 20.0,
+                hit: false,
+            }),
+        }
+        let hp = game.player.hp;
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp - 1);
+        assert!(game.player.spin.is_some());
+    }
 }
 
 #[test]
@@ -362,7 +457,7 @@ fn landing_destroys_every_overlapping_ship_and_costs_exactly_one_heart() {
     for boss_target in [false, true] {
         let mut game = Game::new(7);
         game.state = State::Playing;
-        game.player.vel = v2(-SPIN_SPEED, 0.0);
+        game.player.vel = v2(-300.0, 0.0);
         game.player.invuln = 10.0;
         game.player.spin = Some(Spin {
             life: 0.5,
@@ -389,8 +484,9 @@ fn landing_destroys_every_overlapping_ship_and_costs_exactly_one_heart() {
         assert!(game.boss.is_none());
         assert!(game.player.spin.is_none());
         assert_eq!(game.player.hp, hp - 1);
-        assert_eq!(game.player.vel, v2(-SPIN_SPEED * 0.35, 0.0));
-        assert_eq!(game.player.pos, at);
+        let velocity = v2(-300.0 * (-DRAG * 0.01).exp(), 0.0);
+        assert_eq!(game.player.vel, velocity);
+        assert_eq!(game.player.pos, at + velocity * 0.01);
         game.player_collisions();
         assert_eq!(game.player.hp, hp - 1);
     }
@@ -460,7 +556,7 @@ fn star_charge_cancels_on_pause_and_active_star_freezes_without_recoil() {
     assert!(game.player.spin.is_none());
 
     game.player.spin = Some(Spin::new(1.0, false, 1.0, game.player.pos, 0.0));
-    game.player.vel = v2(SPIN_SPEED, 0.0);
+    game.player.vel = v2(300.0, 0.0);
     game.pause();
     let life = game.player.spin.as_ref().unwrap().life;
     let pos = game.player.pos;
@@ -477,7 +573,7 @@ fn star_charge_cancels_on_pause_and_active_star_freezes_without_recoil() {
         &view,
     );
     game.update_spin(0.02);
-    assert_eq!(game.player.vel, v2(SPIN_SPEED, 0.0));
+    assert_eq!(game.player.vel, v2(300.0 * (-DRAG * 0.02).exp(), 0.0));
     assert!(game.bullets.is_empty(), "star fires beams, not pellets");
     game.state = State::Dying;
     game.update_world(0.01);

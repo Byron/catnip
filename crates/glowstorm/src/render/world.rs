@@ -156,7 +156,7 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             );
         }
     }
-    let blink = p.spin.is_none() && p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
+    let blink = p.invuln > 0.0 && (p.invuln * 14.0) as i32 % 2 == 1;
     if matches!(game.state, State::Playing | State::Paused | State::Upgrade) && !blink {
         let k = art::angle_frame(p.angle(), art::PLAYER_ANGLES, TAU);
         draw.sprite(sprites.player[k], p.pos, Z_PLAYER);

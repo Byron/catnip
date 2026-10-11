@@ -115,7 +115,7 @@ impl Player {
     }
 
     pub fn dashing(&self) -> bool {
-        self.dash_t > 0.0 || self.spin.is_some()
+        self.dash_t > 0.0
     }
 
     pub fn angle(&self) -> f32 {
@@ -147,7 +147,6 @@ pub const CHARGE_BOOST_HEAT: f32 = 0.9;
 pub(super) const DASH_SPEED: f32 = 1350.0;
 
 pub(super) const DASH_TIME: f32 = 0.17;
-pub(super) const SPIN_SPEED: f32 = 650.0;
 pub(super) const ROLL_TAP_TIME: f32 = 0.18;
 pub const SPIN_RADIUS: f32 = 48.0;
 
@@ -219,7 +218,7 @@ impl Game {
         {
             p.roll_hold = Some(0.0);
         }
-        if wants_dash && p.dash_charges > 0 && !p.dashing() && !p.charge_spin {
+        if wants_dash && p.dash_charges > 0 && !p.dashing() && p.spin.is_none() && !p.charge_spin {
             p.dash_charges -= 1;
             if p.dash_cd <= 0.0 {
                 p.dash_cd = dash_cooldown;
@@ -244,7 +243,7 @@ impl Game {
             }
         }
 
-        let movement_dt = if let Some(spin) = &mut p.spin {
+        if let Some(spin) = &mut p.spin {
             spin.from = p.pos;
             spin.active = dt.min(spin.life);
             spin.life -= spin.active;
@@ -258,8 +257,8 @@ impl Game {
                     life: 0.22,
                 });
             }
-            spin.active
-        } else if p.dash_t > 0.0 {
+        }
+        if p.dash_t > 0.0 {
             p.dash_t -= dt;
             p.ghost_cd -= dt;
             if p.ghost_cd <= 0.0 {
@@ -273,13 +272,11 @@ impl Game {
             if p.dash_t <= 0.0 {
                 p.vel = p.vel * 0.35;
             }
-            dt
         } else {
             p.vel += movement * ACCEL * dt;
             p.vel = p.vel * (-DRAG * dt).exp();
-            dt
-        };
-        p.pos += p.vel * movement_dt;
+        }
+        p.pos += p.vel * dt;
         let lo = WALL + PLAYER_RADIUS;
         if p.pos.x < lo || p.pos.x > size.x - lo {
             p.pos.x = p.pos.x.clamp(lo, size.x - lo);
@@ -359,12 +356,6 @@ impl Game {
             if p.charge_spin {
                 let multiplier = damage / (1.0 + 2.0 * p.charge);
                 p.spin = Some(Spin::new(p.charge, boosted, multiplier, p.pos, p.aim));
-                let dir = if movement != V2::default() {
-                    movement
-                } else {
-                    V2::from_angle(p.aim)
-                };
-                p.vel = dir * SPIN_SPEED * if boosted { 1.6 } else { 1.0 };
                 p.dash_t = 0.0;
                 p.roll_hold = None;
                 p.charge_spin = false;
