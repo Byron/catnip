@@ -392,7 +392,12 @@ impl Game {
                     weapon: p.weapon,
                     charge: p.charge,
                     boosted,
-                    damage: damage * if p.weapon == Weapon::Sniper { 2.0 } else { 1.0 },
+                    damage: damage
+                        * if p.weapon == Weapon::Sniper {
+                            SNIPER_DAMAGE / 3.0
+                        } else {
+                            1.0
+                        },
                     life: duration,
                     duration,
                     fire_cd: 0.0,
@@ -466,7 +471,8 @@ impl Game {
             };
             for &(offset, damage) in pattern {
                 let d = V2::from_angle(aim + offset);
-                let damage = damage * if sniper { 6.0 } else { 1.0 };
+                let recoil = damage * if sniper { 6.0 } else { 1.0 };
+                let damage = damage * if sniper { SNIPER_DAMAGE } else { 1.0 };
                 bullets.push(Bullet {
                     pos: muzzle,
                     prev: p.pos,
@@ -476,10 +482,11 @@ impl Game {
                     damage,
                     pierce,
                     hit_ids: Vec::new(),
+                    exits: Vec::new(),
                     falloff,
                     weapon: p.weapon,
                 });
-                p.vel += -d * 9.0 * damage;
+                p.vel += -d * 9.0 * recoil;
             }
             sfx.push(if sniper { Sfx::Sniper } else { Sfx::Shoot });
             let vel = p.vel;

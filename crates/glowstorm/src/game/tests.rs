@@ -3,6 +3,178 @@
 use super::*;
 
 #[test]
+fn sniper_entry_and_exit_impacts_are_separate_and_exit_throws_more_debris() {
+    for boss_target in [false, true] {
+        for lethal in [false, true] {
+            let mut game = Game::new(7);
+            let radius = if boss_target {
+                BOSS_RADIUS + 5.0
+            } else {
+                Kind::Tank.radius() + 5.0
+            };
+            if boss_target {
+                game.spawn_boss();
+                let b = game.boss.as_mut().unwrap();
+                b.pos = v2(500.0, 500.0);
+                b.entering = 0.0;
+                b.hp = if lethal { 1.0 } else { 100.0 };
+            } else {
+                game.add_enemy(Kind::Tank, v2(500.0, 500.0), V2::default(), true);
+                game.enemies[0].hp = if lethal { 1.0 } else { 100.0 };
+            }
+            // Offset from center so both effects must use the actual boundary intersection.
+            game.bullets.push(Bullet {
+                pos: v2(400.0, 515.0),
+                prev: v2(400.0, 515.0),
+                vel: v2(5000.0, 0.0),
+                traveled: 0.0,
+                range: 1800.0,
+                damage: SNIPER_DAMAGE,
+                pierce: 0,
+                hit_ids: Vec::new(),
+                exits: Vec::new(),
+                weapon: Weapon::Sniper,
+                falloff: false,
+            });
+            game.update_bullets(0.02);
+            assert_eq!(game.bullets[0].exits.len(), 1, "round is still inside");
+            let entry_x = 500.0 - (radius * radius - 225.0).sqrt();
+            let entry: Vec<_> = game
+                .particles
+                .iter()
+                .filter(|p| (p.pos - v2(entry_x, 515.0)).len() < 0.01)
+                .collect();
+            assert_eq!(entry.len(), 25);
+            assert!(
+                entry
+                    .iter()
+                    .all(|p| p.vel.x < 10.0 && p.size == 0 && p.life == 0.25)
+            );
+            if lethal && boss_target {
+                game.boss = None;
+            } else if lethal {
+                game.enemies.clear(); // Isolate the exit from hits on the tank's spawned minions.
+            }
+            game.particles.clear();
+            game.update_bullets(0.02);
+            assert!(game.bullets[0].exits.is_empty());
+            let exit_x = 500.0 + (radius * radius - 225.0).sqrt();
+            assert_eq!(game.particles.len(), 62);
+            assert!(
+                game.particles
+                    .iter()
+                    .all(|p| (p.pos - v2(exit_x, 515.0)).len() < 0.01
+                        && p.vel.x > 100.0
+                        && p.size >= 1
+                        && p.life == 0.5)
+            );
+            game.particles.clear();
+            game.update_bullets(0.02);
+            assert!(game.particles.is_empty(), "exit only happens once");
+        }
+    }
+}
+
+#[test]
+fn sniper_exit_follows_deflection_inside_a_ship_and_stops_at_range() {
+    for range in [110.0, 1800.0] {
+        let mut game = Game::new(7);
+        game.add_enemy(Kind::Tank, v2(500.0, 500.0), V2::default(), true);
+        game.enemies[0].hp = 100.0;
+        game.add_orb(v2(510.0, 500.0), V2::default());
+        let mut rng = Rng(game.rng.0);
+        let dir = V2::from_angle(rng.range(-TAU / 12.0, TAU / 12.0));
+        game.bullets.push(Bullet {
+            pos: v2(400.0, 500.0),
+            prev: v2(400.0, 500.0),
+            vel: v2(5000.0, 0.0),
+            traveled: 0.0,
+            range,
+            damage: SNIPER_DAMAGE,
+            pierce: 0,
+            hit_ids: Vec::new(),
+            exits: Vec::new(),
+            weapon: Weapon::Sniper,
+            falloff: false,
+        });
+        game.update_bullets(0.1);
+        let debris: Vec<_> = game.particles.iter().filter(|p| p.life == 0.5).collect();
+        if range < 200.0 {
+            assert!(
+                game.bullets.is_empty() && debris.is_empty(),
+                "no exit beyond range"
+            );
+        } else {
+            assert_eq!(debris.len(), 62);
+            let exit = debris[0].pos;
+            assert!(((exit - v2(500.0, 500.0)).len() - 37.0).abs() < 0.01);
+            assert!(exit.y != 500.0 && (exit - v2(499.0, 500.0)).norm().dot(dir) > 0.9999);
+            assert!(game.bullets[0].exits.is_empty());
+        }
+    }
+}
+
+#[test]
+fn sniper_hits_push_surviving_ships_into_a_visible_drift() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for boss_target in [false, true] {
+            let mut game = Game::new(7);
+            game.state = State::Playing;
+            game.player.pos = v2(300.0, 500.0);
+            game.player.aim = 0.0;
+            game.player.weapon = Weapon::Sniper;
+            if boss_target {
+                game.spawn_boss();
+                let b = game.boss.as_mut().unwrap();
+                b.pos = v2(500.0, 500.0);
+                b.entering = 0.0;
+            } else {
+                game.add_enemy(Kind::Tank, v2(500.0, 500.0), v2(-100.0, 0.0), true);
+            }
+            game.update_player(
+                0.0,
+                &Input {
+                    fire: true,
+                    ..Input::default()
+                },
+                &view,
+            );
+            game.update_bullets(0.06);
+            let impulse = if boss_target {
+                game.boss.as_ref().unwrap().impulse
+            } else {
+                game.enemies[0].impulse
+            };
+            assert!(impulse.x > if boss_target { 200.0 } else { 400.0 });
+            let frames = if boss_target { fps / 4 } else { fps / 2 };
+            for _ in 0..frames {
+                if boss_target {
+                    game.update_boss(1.0 / fps as f32);
+                } else {
+                    game.update_enemies(1.0 / fps as f32);
+                }
+            }
+            let (pos, impulse) = if boss_target {
+                let b = game.boss.as_ref().unwrap();
+                (b.pos, b.impulse)
+            } else {
+                let e = &game.enemies[0];
+                (e.pos, e.impulse)
+            };
+            assert!(pos.x - 500.0 > if boss_target { 30.0 } else { 100.0 });
+            assert!(
+                impulse.x > if boss_target { 100.0 } else { 150.0 },
+                "momentum persists through drift"
+            );
+        }
+    }
+}
+
+#[test]
 fn sniper_charge_fires_a_straight_stream_with_timing_upgrades_and_weapon_lock() {
     let view = View {
         scale: 1.0,
@@ -38,7 +210,7 @@ fn sniper_charge_fires_a_straight_stream_with_timing_upgrades_and_weapon_lock() 
             } else {
                 1.0
             };
-            assert!((gun.damage - (2.0 + 4.0 * gun.charge) * multiplier).abs() < 1e-4);
+            assert!((gun.damage - (6.0 + 12.0 * gun.charge) * multiplier).abs() < 1e-4);
             assert!((gun.range - (1200.0 + 600.0 * gun.charge) * 1.25).abs() < 1e-4);
             let duration = gun.duration;
             game.player.weapon = Weapon::Default;
@@ -259,7 +431,7 @@ fn main_weapon_switching_keeps_cooldown_and_menu_number_keys() {
     let round = &game.bullets[0];
     assert_eq!(round.weapon, Weapon::Sniper);
     assert!((round.vel.len() - 5000.0).abs() < 0.01);
-    assert_eq!(round.damage, 6.0);
+    assert_eq!(round.damage, 18.0);
     assert_eq!(round.range, 1800.0);
     assert!(!round.faded());
     assert_eq!(game.player.fire_cd, 0.5);
@@ -319,12 +491,12 @@ fn sniper_pierces_in_order_once_per_ship_and_loses_power() {
             }
             let retained = 0.65 + 0.1 * pierce as f32;
             for (i, e) in game.enemies.iter().rev().enumerate() {
-                let damage = 6.0 * retained.powi(i as i32);
+                let damage = 18.0 * retained.powi(i as i32);
                 assert!(
                     (100.0 - e.hp - damage).abs() < 1e-4,
                     "fps {fps}, pierce {pierce}, target {i}"
                 );
-                let stun = if damage >= 3.0 { damage * 0.15 } else { 0.0 };
+                let stun = (damage.max(4.0) * 0.15).min(1.2);
                 assert!((e.stun - stun).abs() < 1e-4);
             }
             assert_eq!(game.bullets.len(), 1);
@@ -473,13 +645,13 @@ fn sniper_pierces_a_boss_in_order_before_deflecting_off_enemy_bullets() {
     );
     game.bullets[0].vel = v2(5000.0, 0.0);
     game.update_bullets(0.1);
-    assert!((game.enemies[1].hp - 94.0).abs() < 1e-4);
-    assert!((game.boss.as_ref().unwrap().hp - 96.1).abs() < 1e-4);
+    assert!((game.enemies[1].hp - 82.0).abs() < 1e-4);
+    assert!((game.boss.as_ref().unwrap().hp - 88.3).abs() < 1e-4);
     assert_eq!(game.enemies[0].hp, 100.0);
     assert!(game.orbs.is_empty());
     assert_eq!(game.bullets.len(), 1);
     assert!(game.bullets[0].vel.angle().abs() <= TAU / 12.0);
-    assert!((game.bullets[0].damage - 6.0 * 0.65 * 0.65).abs() < 1e-5);
+    assert!((game.bullets[0].damage - 18.0 * 0.65 * 0.65).abs() < 1e-5);
 }
 
 #[test]
@@ -495,6 +667,7 @@ fn sniper_clears_enemy_bullets_and_continues_without_losing_speed_or_power() {
             damage: 6.0,
             pierce: 0,
             hit_ids: Vec::new(),
+            exits: Vec::new(),
             weapon: Weapon::Sniper,
             falloff: false,
         });
@@ -541,6 +714,7 @@ fn sniper_resweeps_multiple_deflections_and_only_hits_ships_on_its_new_path() {
         damage: 6.0,
         pierce: 0,
         hit_ids: Vec::new(),
+        exits: Vec::new(),
         weapon: Weapon::Sniper,
         falloff: false,
     });
@@ -583,6 +757,7 @@ fn sniper_deflected_sweep_tracks_moving_orbs_and_still_expires() {
                     damage: 6.0,
                     pierce: 0,
                     hit_ids: Vec::new(),
+                    exits: Vec::new(),
                     weapon: Weapon::Sniper,
                     falloff: false,
                 });
@@ -1464,6 +1639,7 @@ fn bullets_intercept_orbs_only_when_their_cores_meet_at_the_same_time() {
             damage: 1.0,
             pierce: 0,
             hit_ids: Vec::new(),
+            exits: Vec::new(),
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1550,6 +1726,7 @@ fn interceptions_respect_enemy_and_boss_order_and_piercing() {
             damage: 1.0,
             pierce,
             hit_ids: Vec::new(),
+            exits: Vec::new(),
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1629,6 +1806,7 @@ fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
             damage: 1.0,
             pierce: 0,
             hit_ids: Vec::new(),
+            exits: Vec::new(),
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -1661,6 +1839,7 @@ fn an_orbs_final_sweep_can_be_intercepted_before_it_leaves_or_expires() {
             damage: 1.0,
             pierce: 0,
             hit_ids: Vec::new(),
+            exits: Vec::new(),
             weapon: Weapon::Default,
             falloff: true,
         });
@@ -2258,6 +2437,7 @@ fn piercing_bullet_hits_two_enemies_in_a_line() {
         damage: 1.0,
         pierce: 1,
         hit_ids: Vec::new(),
+        exits: Vec::new(),
         weapon: Weapon::Default,
         falloff: true,
     });

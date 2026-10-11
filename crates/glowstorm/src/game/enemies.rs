@@ -411,7 +411,7 @@ impl Game {
                 e.vel += (desired - e.vel) * (1.0 - (-steer * dt).exp());
             }
             e.pos += (e.vel + e.impulse) * dt;
-            e.impulse = e.impulse * (-4.0 * dt).exp();
+            e.impulse = e.impulse * (-(if stunned { 1.8 } else { 4.0 }) * dt).exp();
             let r = e.kind.radius() + WALL;
             if e.pos.x < r || e.pos.x > size.x - r {
                 e.pos.x = e.pos.x.clamp(r, size.x - r);

@@ -16,9 +16,18 @@ pub struct Bullet {
     pub(super) pierce: u8,
     /// Ships already pierced; 0 is the boss, enemy ids start at 1.
     pub(super) hit_ids: Vec<u32>,
+    pub(super) exits: Vec<ExitImpact>,
     /// Loses damage with distance (off with Long Range).
     pub(super) falloff: bool,
     pub weapon: Weapon,
+}
+
+pub(super) struct ExitImpact {
+    id: u32,
+    pos: V2,
+    radius: f32,
+    hue: Hue,
+    damage: f32,
 }
 
 impl Bullet {
@@ -39,6 +48,7 @@ impl Bullet {
 }
 
 pub(super) const BULLET_SPEED: f32 = 1250.0;
+pub(super) const SNIPER_DAMAGE: f32 = 18.0;
 
 /// Bullets fade out after this distance.
 pub const BULLET_RANGE: f32 = 800.0;
@@ -138,10 +148,11 @@ impl Game {
                     damage,
                     pierce,
                     hit_ids: Vec::new(),
+                    exits: Vec::new(),
                     falloff,
                     weapon: gun.weapon,
                 });
-                self.player.vel += -d * 3.0 * damage;
+                self.player.vel += -d * 3.0 * if sniper { damage.min(6.0) } else { damage };
             }
             self.sfx.push(Sfx::Gatling);
             flashes.push(dir * 280.0 + self.rng.dir() * 100.0);
@@ -317,6 +328,7 @@ impl Game {
                 damage,
                 pierce: self.player.upgrades.level(Upgrade::Pierce),
                 hit_ids: Vec::new(),
+                exits: Vec::new(),
                 falloff: false,
                 weapon: Weapon::Default,
             });
@@ -368,6 +380,7 @@ impl Game {
     pub(super) fn update_bullets(&mut self, dt: f32) {
         let mut wall_hits = Vec::new();
         let mut hits = Vec::new();
+        let mut exits = Vec::new();
         let power = self.power();
         let size = self.arena_size;
         let enemies = &mut self.enemies;
@@ -437,41 +450,77 @@ impl Game {
                     targets.push((None, t));
                 }
                 targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
-                for (i, _) in targets {
+                for (i, t) in targets {
                     let Some(i) = i else {
                         let boss = boss.as_mut().unwrap();
-                        let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
+                        let at = b.prev + (end - b.prev) * t;
                         let damage = if boss.entering > 0.0 {
                             0.0
                         } else {
                             b.strength() * power
                         };
                         boss.hp -= damage;
-                        boss.stagger(damage);
-                        boss.impulse += b.vel * (0.5 * damage / BULLET_SPEED);
+                        let sniper = b.weapon == Weapon::Sniper && boss.entering <= 0.0;
+                        boss.stagger(if sniper { damage.max(6.0) } else { damage });
+                        boss.impulse +=
+                            b.vel * ((if sniper { 3.0 } else { 0.5 }) * damage / BULLET_SPEED);
+                        if sniper && boss.impulse.len() > 350.0 {
+                            boss.impulse = boss.impulse.norm() * 350.0;
+                        }
                         boss.flash = 0.05;
-                        hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
+                        hits.push((
+                            at,
+                            b.vel,
+                            Hue::Violet,
+                            if sniper {
+                                damage.min(6.0)
+                            } else {
+                                damage.max(0.2)
+                            },
+                        ));
                         if b.weapon != Weapon::Sniper || boss.entering > 0.0 {
                             return false;
                         }
                         b.hit_ids.push(0);
+                        b.exits.push(ExitImpact {
+                            id: 0,
+                            pos: boss.pos,
+                            radius: BOSS_RADIUS + 5.0,
+                            hue: Hue::Violet,
+                            damage,
+                        });
                         b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
                         continue;
                     };
                     let e = &mut enemies[i];
                     let damage = b.strength() * power;
                     e.hp -= damage;
-                    e.stagger(damage);
+                    let sniper = b.weapon == Weapon::Sniper;
+                    e.stagger(if sniper { damage.max(4.0) } else { damage });
                     e.flash = 0.07;
-                    let knock = e.kind.spec().knockback;
+                    let knock = if sniper {
+                        e.kind.spec().knockback.max(6.0)
+                    } else {
+                        e.kind.spec().knockback
+                    };
                     e.impulse += b.vel * (knock * damage / BULLET_SPEED);
+                    if sniper && e.impulse.len() > 700.0 {
+                        e.impulse = e.impulse.norm() * 700.0;
+                    }
                     hits.push((
-                        e.pos - b.vel.norm() * e.kind.radius(),
+                        b.prev + (end - b.prev) * t,
                         b.vel,
                         e.kind.hue(),
-                        damage,
+                        if sniper { damage.min(6.0) } else { damage },
                     ));
                     if b.weapon == Weapon::Sniper {
+                        b.exits.push(ExitImpact {
+                            id: e.id,
+                            pos: e.pos,
+                            radius: e.kind.radius() + 5.0,
+                            hue: e.kind.hue(),
+                            damage,
+                        });
                         b.damage *= 0.65 + 0.1 * f32::from(b.pierce);
                     } else if b.pierce == 0 {
                         return false;
@@ -480,6 +529,22 @@ impl Game {
                     }
                     b.hit_ids.push(e.id);
                 }
+                b.exits.retain_mut(|exit| {
+                    // Follow surviving ships; destroyed ships keep their last impact geometry.
+                    if exit.id == 0 {
+                        if let Some(boss) = boss.as_ref() {
+                            exit.pos = boss.pos;
+                        }
+                    } else if let Some(e) = enemies.iter().find(|e| e.id == exit.id) {
+                        exit.pos = e.pos;
+                    }
+                    if let Some(t) = segment_exit(exit.pos, b.prev, b.pos, exit.radius) {
+                        exits.push((b.prev + (b.pos - b.prev) * t, b.vel, exit.hue, exit.damage));
+                        false
+                    } else {
+                        true
+                    }
+                });
                 if let Some((i, t)) = interception {
                     orbs.swap_remove(i);
                     hits.push((b.pos, b.vel, Hue::Red, 0.5));
@@ -520,7 +585,7 @@ impl Game {
                 self.emit(pos, v, 0.2, Hue::Cyan, 0);
             }
         }
-        if !hits.is_empty() {
+        if !hits.is_empty() || !exits.is_empty() {
             self.sfx.push(Sfx::Hit);
         }
         for (pos, vel, hue, damage) in hits {
@@ -528,6 +593,18 @@ impl Game {
             for _ in 0..(1 + (damage * 4.0) as usize) {
                 let v = -vel.norm() * self.rng.range(80.0, 260.0) + self.rng.dir() * 90.0;
                 self.emit(pos, v, 0.25, hue, 0);
+            }
+        }
+        for (pos, vel, hue, damage) in exits {
+            for i in 0..(8 + (damage * 3.0) as usize).min(70) {
+                let v = vel.norm() * self.rng.range(300.0, 750.0) + self.rng.dir() * 180.0;
+                self.emit(
+                    pos,
+                    v,
+                    0.5,
+                    if i % 4 == 0 { Hue::White } else { hue },
+                    if i % 3 == 0 { 2 } else { 1 },
+                );
             }
         }
 

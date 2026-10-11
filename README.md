@@ -72,11 +72,13 @@ time they're twice as tough.
 
 The left-click weapon starts as **1 GUN**. Press **2** for the sniper: accurate,
 elongated shots travel four times faster, fire every half second, and start with
-six times the damage. Rounds pierce ships, including the boss, losing 35% of their
+eighteen times the damage. Rounds pierce ships, including the boss, losing 35% of their
 remaining damage with each hit. Piercing upgrades reduce that loss by 10 percentage
 points per level; Spread, Long Range, Coolant, and Rapid still apply.
 Sniper rounds also destroy enemy bullets without being consumed. Each interception
 randomly deflects the round by up to 30 degrees, preserving its speed and damage.
+Hits shove surviving ships into a lingering drift. Entry impacts throw small sparks
+backward; exits eject a larger, brighter spray of debris forward along the round's path.
 Both main weapons share heat and firing cooldown. Press **1** to switch back.
 With the sniper selected, middle mouse / E charges a rapid stream of sniper rounds
 instead of a spread barrage. It follows your aim without scatter, pierces ships,
@@ -84,8 +86,9 @@ and deflects off enemy bullets. More charge increases damage, reach, and duratio
 Spread upgrades increase its firing rate while keeping the stream straight.
 Heavy projectile hits stun enemies: they stop attacking, slow to a drift, and
 tumble with yellow sparks before recovering. A full sniper hit stuns for about
-0.9 seconds; weakened piercing rounds cause shorter stuns, and light hits cause
-none. Bosses resist weaker hits and only stagger briefly, pausing their attacks.
+1.2 seconds; weakened piercing rounds cause shorter stuns. Even weak sniper hits
+briefly stagger enemies. Bosses resist other weaker hits and only stagger briefly,
+pausing their attacks.
 Repeated heavy hits refresh the stun rather than adding durations together.
 
 Hold Shift while moving along your aim direction to engage the rear rocket,

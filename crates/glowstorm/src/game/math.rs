@@ -116,6 +116,14 @@ pub(super) fn segment_hit(p: V2, a: V2, b: V2, radius: f32) -> Option<f32> {
     (t <= 1.0).then_some(t)
 }
 
+/// Exit of an already pierced circle; a ship moving off the round exits at the start.
+pub(super) fn segment_exit(p: V2, a: V2, b: V2, radius: f32) -> Option<f32> {
+    if (b - p).len() <= radius {
+        return None;
+    }
+    Some(segment_hit(p, b, a, radius).map_or(0.0, |t| 1.0 - t))
+}
+
 pub struct Rng(pub(super) u64);
 
 /// Distance between two segments, including crossings and stationary endpoints.

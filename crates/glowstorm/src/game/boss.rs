@@ -183,7 +183,7 @@ impl Game {
             b.pos += b.vel * dt;
         }
         b.pos += b.impulse * dt;
-        b.impulse = b.impulse * (-4.0 * dt).exp();
+        b.impulse = b.impulse * (-(if stunned { 2.5 } else { 4.0 }) * dt).exp();
         let r = BOSS_RADIUS + WALL;
         if b.pos.x < r || b.pos.x > self.arena_size.x - r {
             b.pos.x = b.pos.x.clamp(r, self.arena_size.x - r);
