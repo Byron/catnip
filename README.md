@@ -37,6 +37,9 @@ opens itself in one of them.
 
 Sound uses CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
 `libasound2` on Debian/Ubuntu); without an audio device the game runs silently.
+Use `glowstorm --no-sound` (or `cargo run --release -- --no-sound`) to skip sound
+synthesis, audio initialization, and playback when comparing frame rates.
+`glowstorm -h` or `glowstorm --help` shows the available options.
 
 | Control | Action |
 |---|---|

@@ -6,13 +6,24 @@ mod game;
 mod render;
 mod sound;
 
-use std::time::Instant;
+use std::{ffi::OsString, time::Instant};
 
 use catnip::{kitty, term};
 
 use sound::Audio;
 
 fn main() {
+    let options = match parse_args(std::env::args_os().skip(1)) {
+        Ok(options) => options,
+        Err(e) => {
+            eprintln!("{e}\nTry 'glowstorm --help' for usage.");
+            std::process::exit(2);
+        }
+    };
+    if options.help {
+        println!("{HELP}");
+        return;
+    }
     if term::Terminal::detect().is_none() {
         // Started from another terminal: open ourselves in one that works.
         if std::env::var_os("GLOWSTORM_RELAUNCHED").is_none() && relaunch_in_supported_terminal() {
@@ -63,10 +74,16 @@ fn main() {
         floor.w,
         floor.h
     );
-    let audio = Audio::open();
+    let audio = if options.no_sound {
+        None
+    } else {
+        Audio::open()
+    };
     eprintln!(
         "audio: {}",
-        if audio.is_some() {
+        if options.no_sound {
+            "disabled (--no-sound)"
+        } else if audio.is_some() {
             "on"
         } else {
             "unavailable, running silent"
@@ -88,6 +105,32 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+const HELP: &str = "Glowstorm — a terminal twin-stick shooter for kitty and Ghostty
+
+Usage: glowstorm [OPTIONS]
+
+Options:
+  -h, --help  Show this help and exit
+  --no-sound  Skip sound synthesis, audio initialization, and playback";
+
+#[derive(Default, Debug, PartialEq, Eq)]
+struct Options {
+    help: bool,
+    no_sound: bool,
+}
+
+fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Options, String> {
+    let mut options = Options::default();
+    for arg in args {
+        match arg.to_str() {
+            Some("-h" | "--help") => options.help = true,
+            Some("--no-sound") => options.no_sound = true,
+            _ => return Err(format!("unknown argument: {}", arg.to_string_lossy())),
+        }
+    }
+    Ok(options)
 }
 
 const UNSUPPORTED: &str = "Glowstorm runs in kitty or Ghostty (it draws with the kitty graphics and
@@ -127,4 +170,49 @@ fn relaunch_in_supported_terminal() -> bool {
         .args(["--title=Glowstorm", "--maximize=true", "-e"])
         .arg(&exe);
     quiet(ghostty).spawn().is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_help_and_no_sound_with_sound_enabled_by_default() {
+        assert_eq!(parse_args([]).unwrap(), Options::default());
+        for help in ["-h", "--help"] {
+            assert_eq!(
+                parse_args([help.into()]).unwrap(),
+                Options {
+                    help: true,
+                    no_sound: false,
+                }
+            );
+            for args in [[help, "--no-sound"], ["--no-sound", help]] {
+                assert_eq!(
+                    parse_args(args.map(OsString::from)).unwrap(),
+                    Options {
+                        help: true,
+                        no_sound: true,
+                    }
+                );
+            }
+        }
+        assert_eq!(
+            parse_args(["--no-sound".into()]).unwrap(),
+            Options {
+                help: false,
+                no_sound: true,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_arguments() {
+        for arg in ["--no-soud", "unexpected"] {
+            assert_eq!(
+                parse_args([arg.into()]).unwrap_err(),
+                format!("unknown argument: {arg}")
+            );
+        }
+    }
 }
