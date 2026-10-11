@@ -923,6 +923,40 @@ fn interceptions_respect_enemy_and_boss_order_and_piercing() {
 }
 
 #[test]
+fn gatling_pellets_all_expire_after_their_barrage() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for fps in [30, 60, 144] {
+        for aim in [0.0, 0.3, 1.0, 2.0, 3.0] {
+            for boosted in [false, true] {
+                let mut game = Game::new(7);
+                game.player.aim = aim;
+                game.player.charge = 0.95;
+                game.player.heat = if boosted { 0.95 } else { 0.5 };
+                game.player.upgrades.add(Upgrade::Spread);
+                game.player.upgrades.add(Upgrade::Spread);
+                game.update_player(0.0, &Input::default(), &view);
+                for _ in 0..fps * 4 {
+                    game.update_gatling(1.0 / fps as f32);
+                    game.update_bullets(1.0 / fps as f32);
+                }
+                assert!(game.gatling.is_none());
+                assert!(
+                    game.bullets.is_empty(),
+                    "{} pellets stuck at {fps} fps, aim {aim}, boosted {boosted}: {:?}",
+                    game.bullets.len(),
+                    game.bullets
+                        .first()
+                        .map(|b| (b.pos, b.traveled, b.range, b.vel))
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
     for wall in [false, true] {
         let mut game = Game::new(7);

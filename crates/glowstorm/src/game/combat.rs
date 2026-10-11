@@ -438,7 +438,8 @@ impl Game {
                 wall_hits.push(b.pos);
                 return false;
             }
-            b.traveled < b.range
+            // A clipped step expires even if rounding leaves its endpoint short of the limit.
+            flight >= 1.0 && b.traveled < b.range
         });
         // Keep the final sweep of escaping or expiring orbs available for interception.
         self.orbs.retain(|o| {
