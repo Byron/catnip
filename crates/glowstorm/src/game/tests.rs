@@ -84,8 +84,204 @@ fn shrinking_a_paused_arena_keeps_entities_reachable_and_snaps_camera() {
 #[test]
 fn fast_bullet_path_hits_enemy_between_frames() {
     // A 25-unit step jumps straight over a radius-10 enemy; the swept test must still catch it.
-    assert!(segment_distance(v2(12.0, 0.0), v2(0.0, 0.0), v2(25.0, 0.0)) < 10.0);
-    assert!(segment_distance(v2(12.0, 30.0), v2(0.0, 0.0), v2(25.0, 0.0)) > 10.0);
+    assert!(segment_hit(v2(12.0, 0.0), v2(0.0, 0.0), v2(25.0, 0.0), 10.0).is_some());
+    assert!(segment_hit(v2(12.0, 30.0), v2(0.0, 0.0), v2(25.0, 0.0), 10.0).is_none());
+}
+
+#[test]
+fn bullets_intercept_orbs_only_when_their_cores_meet_at_the_same_time() {
+    // Player shot moves from (300, 300) to (425, 300) in 0.1 seconds.
+    for (pos, vel, heavy, hit) in [
+        (v2(360.0, 300.0), V2::default(), false, true),
+        (v2(425.0, 300.0), v2(-1250.0, 0.0), false, true),
+        (v2(362.5, 237.5), v2(0.0, 1250.0), false, true),
+        (v2(362.5, 175.0), v2(0.0, 1250.0), false, false),
+        (v2(330.0, 300.0), v2(1250.0, 0.0), false, false),
+        (v2(360.0, 310.9), V2::default(), false, true),
+        (v2(360.0, 311.1), V2::default(), false, false),
+        (v2(360.0, 316.9), V2::default(), true, true),
+        (v2(360.0, 317.1), V2::default(), true, false),
+    ] {
+        let mut game = Game::new(7);
+        game.bullets.push(Bullet {
+            pos: v2(300.0, 300.0),
+            prev: v2(300.0, 300.0),
+            vel: v2(BULLET_SPEED, 0.0),
+            traveled: 0.0,
+            range: BULLET_RANGE,
+            damage: 1.0,
+            pierce: 0,
+            last_hit: 0,
+            falloff: true,
+        });
+        game.orbs.push(Orb {
+            pos,
+            prev: pos,
+            vel,
+            life: 6.0,
+            heavy,
+        });
+        game.update_enemies(0.1);
+        game.update_bullets(0.1);
+        assert_eq!(game.orbs.is_empty(), hit, "orb at {pos:?}, vel {vel:?}");
+        assert_eq!(game.bullets.is_empty(), hit);
+        if hit {
+            assert!(game.sfx.contains(&Sfx::Hit));
+            assert!(!game.particles.is_empty());
+        } else {
+            assert_eq!(game.orbs[0].pos, pos + vel * 0.1);
+        }
+    }
+}
+
+#[test]
+fn normal_and_gatling_shots_intercept_the_first_orb_without_upgrades() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    for gatling in [false, true] {
+        let mut game = Game::new(7);
+        if gatling {
+            game.update_player(
+                0.5,
+                &Input {
+                    charge: true,
+                    ..Input::default()
+                },
+                &view,
+            );
+            game.update_player(0.0, &Input::default(), &view);
+            game.update_gatling(0.01);
+        } else {
+            game.update_player(
+                0.01,
+                &Input {
+                    fire: true,
+                    ..Input::default()
+                },
+                &view,
+            );
+        }
+        // Isolate one pellet so the rest of the spray cannot clear the second orb.
+        game.bullets.truncate(1);
+        let shot = &game.bullets[0];
+        let (pos, vel) = (shot.pos, shot.vel);
+        // Reverse vector order: the nearer orb must win.
+        game.add_orb(pos + vel * 0.12, V2::default());
+        game.add_orb(pos + vel * 0.07, V2::default());
+        let count = game.bullets.len();
+        game.update_bullets(0.15);
+        assert_eq!(game.bullets.len(), count - 1);
+        assert_eq!(game.orbs.len(), 1);
+        assert_eq!(game.orbs[0].pos, pos + vel * 0.12);
+    }
+}
+
+#[test]
+fn interceptions_respect_enemy_and_boss_order_and_piercing() {
+    for (boss_target, pierce, orb_first) in [
+        (false, 0, false),
+        (false, 1, false),
+        (false, 0, true),
+        (true, 0, false),
+        (true, 0, true),
+    ] {
+        let mut game = Game::new(7);
+        game.bullets.push(Bullet {
+            pos: v2(300.0, 300.0),
+            prev: v2(300.0, 300.0),
+            vel: v2(BULLET_SPEED, 0.0),
+            traveled: 0.0,
+            range: BULLET_RANGE,
+            damage: 1.0,
+            pierce,
+            last_hit: 0,
+            falloff: true,
+        });
+        let (target_x, orb_x) = if orb_first {
+            (480.0, 350.0)
+        } else {
+            (400.0, 480.0)
+        };
+        game.add_orb(v2(orb_x, 300.0), V2::default());
+        let hp = if boss_target {
+            game.spawn_boss();
+            let boss = game.boss.as_mut().unwrap();
+            boss.pos = v2(target_x, 300.0);
+            boss.entering = 0.0;
+            boss.hp
+        } else {
+            game.add_enemy(Kind::Tank, v2(target_x, 300.0), V2::default(), false);
+            game.enemies[0].hp
+        };
+        game.update_bullets(0.2);
+        assert!(game.bullets.is_empty());
+        assert_eq!(game.orbs.is_empty(), orb_first || pierce > 0);
+        let remaining = if boss_target {
+            game.boss.as_ref().unwrap().hp
+        } else {
+            game.enemies[0].hp
+        };
+        assert_eq!(remaining < hp, !orb_first);
+    }
+}
+
+#[test]
+fn range_and_walls_end_the_shots_sweep_without_leaving_it_waiting_for_orbs() {
+    for wall in [false, true] {
+        let mut game = Game::new(7);
+        let x = if wall { WORLD_W - WALL - 20.0 } else { 300.0 };
+        game.bullets.push(Bullet {
+            pos: v2(x, 300.0),
+            prev: v2(x, 300.0),
+            vel: v2(BULLET_SPEED, 0.0),
+            traveled: 0.0,
+            range: if wall { BULLET_RANGE } else { 50.0 },
+            damage: 1.0,
+            pierce: 0,
+            last_hit: 0,
+            falloff: true,
+        });
+        game.add_orb(
+            v2(x + if wall { 15.0 } else { 45.0 }, 380.0),
+            v2(0.0, -1000.0),
+        );
+        game.update_enemies(0.15);
+        game.update_bullets(0.15);
+        assert!(game.bullets.is_empty());
+        assert_eq!(game.orbs.len(), 1);
+        assert!(!game.sfx.contains(&Sfx::Hit));
+    }
+}
+
+#[test]
+fn an_orbs_final_sweep_can_be_intercepted_before_it_leaves_or_expires() {
+    for (vel, life, hit) in [
+        (v2(-4000.0, 0.0), 6.0, true),
+        (V2::default(), 0.06, true),
+        (V2::default(), 0.01, false),
+    ] {
+        let mut game = Game::new(7);
+        game.bullets.push(Bullet {
+            pos: v2(300.0, 300.0),
+            prev: v2(300.0, 300.0),
+            vel: v2(BULLET_SPEED, 0.0),
+            traveled: 0.0,
+            range: BULLET_RANGE,
+            damage: 1.0,
+            pierce: 0,
+            last_hit: 0,
+            falloff: true,
+        });
+        game.add_orb(v2(360.0, 300.0), vel);
+        game.orbs[0].life = life;
+        game.update_enemies(0.1);
+        game.update_bullets(0.1);
+        assert!(game.orbs.is_empty());
+        assert_eq!(game.bullets.is_empty(), hit);
+        assert_eq!(game.sfx.contains(&Sfx::Hit), hit);
+    }
 }
 
 #[test]

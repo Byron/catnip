@@ -83,17 +83,25 @@ impl Neg for V2 {
     }
 }
 
-/// Distance from `p` to the segment a→b. Fast bullets test their whole path
-/// this frame, so they can't tunnel through small enemies.
-pub(super) fn segment_distance(p: V2, a: V2, b: V2) -> f32 {
-    let ab = b - a;
-    let len2 = ab.dot(ab);
-    let t = if len2 == 0.0 {
-        0.0
-    } else {
-        ((p - a).dot(ab) / len2).clamp(0.0, 1.0)
-    };
-    (p - (a + ab * t)).len()
+/// First contact with a circle along a→b, as a fraction of the frame.
+pub(super) fn segment_hit(p: V2, a: V2, b: V2, radius: f32) -> Option<f32> {
+    let offset = a - p;
+    let c = offset.dot(offset) - radius * radius;
+    if c <= 0.0 {
+        return Some(0.0);
+    }
+    let delta = b - a;
+    let len2 = delta.dot(delta);
+    let approach = offset.dot(delta);
+    if len2 == 0.0 || approach >= 0.0 {
+        return None;
+    }
+    let discriminant = approach * approach - len2 * c;
+    if discriminant < 0.0 {
+        return None;
+    }
+    let t = c / (-approach + discriminant.sqrt());
+    (t <= 1.0).then_some(t)
 }
 
 pub struct Rng(pub(super) u64);

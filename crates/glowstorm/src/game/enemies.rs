@@ -164,6 +164,7 @@ pub struct Shockwave {
 
 pub struct Orb {
     pub pos: V2,
+    pub(super) prev: V2,
     pub(super) vel: V2,
     pub(super) life: f32,
     /// Tank volley orbs: bigger and slower than shooter bullets.
@@ -439,6 +440,7 @@ impl Game {
             if self.orbs.len() < MAX_ORBS {
                 self.orbs.push(Orb {
                     pos,
+                    prev: pos,
                     vel,
                     life: 7.0,
                     heavy: true,
@@ -471,18 +473,18 @@ impl Game {
             self.sfx.push(Sfx::Shock);
             self.push_motes(pos, 320.0, 260.0);
         }
-        let inside = |p: V2| p.x > WALL && p.y > WALL && p.x < size.x - WALL && p.y < size.y - WALL;
-        self.orbs.retain_mut(|o| {
+        for o in &mut self.orbs {
+            o.prev = o.pos;
             o.pos += o.vel * dt;
             o.life -= dt;
-            o.life > 0.0 && inside(o.pos)
-        });
+        }
     }
 
     pub(super) fn add_orb(&mut self, pos: V2, vel: V2) {
         if self.orbs.len() < MAX_ORBS {
             self.orbs.push(Orb {
                 pos,
+                prev: pos,
                 vel,
                 life: 6.0,
                 heavy: false,

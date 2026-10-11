@@ -122,15 +122,65 @@ impl Game {
         let size = self.arena_size;
         let enemies = &mut self.enemies;
         let boss = &mut self.boss;
+        let orbs = &mut self.orbs;
         self.bullets.retain_mut(|b| {
             b.prev = b.pos;
-            b.pos += b.vel * dt;
+            let step = b.vel * dt;
+            let distance = step.len();
+            let mut flight = if distance > 0.0 {
+                ((b.range - b.traveled) / distance).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            for (pos, delta, edge) in [(b.pos.x, step.x, size.x), (b.pos.y, step.y, size.y)] {
+                if delta != 0.0 {
+                    let wall = if delta > 0.0 { edge - WALL } else { WALL };
+                    flight = flight.min(((wall - pos) / delta).clamp(0.0, 1.0));
+                }
+            }
+            b.pos += step * flight;
             b.traveled += (b.pos - b.prev).len();
-            if let Some(e) = enemies.iter_mut().find(|e| {
-                e.hp > 0.0
-                    && e.id != b.last_hit
-                    && segment_distance(e.pos, b.prev, b.pos) < e.kind.radius() + 5.0
-            }) {
+            // Relative motion tests where both cores are at the same time, excluding glow.
+            let interception = orbs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, o)| {
+                    segment_hit(
+                        V2::default(),
+                        b.prev - o.prev,
+                        b.pos - (o.prev + (o.pos - o.prev) * flight),
+                        o.radius() + 2.0,
+                    )
+                    .filter(|t| {
+                        let at = o.prev + (o.pos - o.prev) * (*t * flight);
+                        o.life + dt >= *t * flight * dt
+                            && at.x > WALL
+                            && at.y > WALL
+                            && at.x < size.x - WALL
+                            && at.y < size.y - WALL
+                    })
+                    .map(|t| (i, t))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let boss_hit = boss
+                .as_ref()
+                .and_then(|boss| segment_hit(boss.pos, b.prev, b.pos, BOSS_RADIUS + 5.0));
+            let barrier = interception
+                .map_or(1.0, |(_, t)| t)
+                .min(boss_hit.unwrap_or(1.0));
+            let mut targets: Vec<_> = enemies
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.hp > 0.0 && e.id != b.last_hit)
+                .filter_map(|(i, e)| {
+                    segment_hit(e.pos, b.prev, b.pos, e.kind.radius() + 5.0)
+                        .filter(|t| *t <= barrier)
+                        .map(|t| (i, t))
+                })
+                .collect();
+            targets.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+            for (i, _) in targets {
+                let e = &mut enemies[i];
                 let damage = b.strength() * power;
                 e.hp -= damage;
                 e.flash = 0.07;
@@ -148,8 +198,8 @@ impl Game {
                 b.pierce -= 1;
                 b.last_hit = e.id;
             }
-            if let Some(boss) = boss.as_mut()
-                && segment_distance(boss.pos, b.prev, b.pos) < BOSS_RADIUS + 5.0
+            if boss_hit.is_some_and(|t| t <= barrier)
+                && let Some(boss) = boss.as_mut()
             {
                 let at = boss.pos - b.vel.norm() * BOSS_RADIUS;
                 // Invulnerable while flying in: the shot just sparks off.
@@ -164,12 +214,26 @@ impl Game {
                 hits.push((at, b.vel, Hue::Violet, damage.max(0.2)));
                 return false;
             }
+            if let Some((i, t)) = interception {
+                let at = b.prev + (b.pos - b.prev) * t;
+                orbs.swap_remove(i);
+                hits.push((at, b.vel, Hue::Red, 0.5));
+                return false;
+            }
             let lo = WALL;
-            if b.pos.x < lo || b.pos.y < lo || b.pos.x > size.x - lo || b.pos.y > size.y - lo {
+            if b.pos.x <= lo || b.pos.y <= lo || b.pos.x >= size.x - lo || b.pos.y >= size.y - lo {
                 wall_hits.push(b.pos);
                 return false;
             }
             b.traveled < b.range
+        });
+        // Keep the final sweep of escaping or expiring orbs available for interception.
+        self.orbs.retain(|o| {
+            o.life > 0.0
+                && o.pos.x > WALL
+                && o.pos.y > WALL
+                && o.pos.x < size.x - WALL
+                && o.pos.y < size.y - WALL
         });
 
         for pos in wall_hits {

@@ -76,6 +76,8 @@ again. Both weapons share heat. Regular fire and charging wait until the barrage
 finishes; Coolant extends the charging time.
 Every bullet pushes its target along its flight direction, including bosses.
 Repeated impacts build momentum, while firing gives your ship a little recoil.
+Direct hits from either weapon destroy enemy bullets, including tank volleys
+and boss shots, consuming your bullet too.
 
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose up to a quarter of their damage at long range, so it pays to get
