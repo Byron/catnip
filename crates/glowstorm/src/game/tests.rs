@@ -3488,6 +3488,9 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         game.add_enemy(kind, at + v2(0.0, 60.0), V2::default(), false);
     }
     game.enemies[0].enraged = true;
+    for enemy in game.enemies.iter_mut().filter(|e| e.kind == Kind::Sniper) {
+        enemy.act = Act::Windup;
+    }
     game.start_wave(5);
     let mut out = Vec::new();
     let mut draw = |game: &Game| {
@@ -3631,12 +3634,28 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         );
         draw(&game);
     }
-    if let Some(b) = game.boss.as_mut() {
-        b.hp = b.max_hp * 0.2;
-    }
-    for _ in 0..120 {
-        game.update(1.0 / 60.0, &Input::default(), &view);
+    for (i, kind) in BossKind::ALL.into_iter().enumerate() {
+        game = Game::new(23);
+        game.start();
+        game.dev.god = true;
+        game.start_wave((i as u32 + 1) * 5);
         draw(&game);
+        game.spawn_boss();
+        game.boss_pending = 0.0;
+        assert_eq!(game.boss.as_ref().unwrap().kind, kind);
+        draw(&game);
+        game.update_boss(3.0);
+        game.update_boss(1.1);
+        assert!(game.boss.as_ref().unwrap().windup > 0.0);
+        draw(&game);
+        for health in [1.0, 0.55, 0.2] {
+            let boss = game.boss.as_mut().unwrap();
+            boss.hp = boss.max_hp * health;
+            for _ in 0..120 {
+                game.update(1.0 / 60.0, &Input::default(), &view);
+                draw(&game);
+            }
+        }
     }
     for state in [
         State::Paused,

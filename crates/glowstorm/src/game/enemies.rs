@@ -8,6 +8,12 @@ pub enum Kind {
     Swarm,
     Shooter,
     Tank,
+    Skirmisher,
+    Sniper,
+    Spinner,
+    Bomber,
+    Splitter,
+    Sentinel,
 }
 
 /// Everything about an enemy type that is a number or a choice, in one place.
@@ -40,7 +46,18 @@ pub struct Spec {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 4] = [Kind::Chaser, Kind::Swarm, Kind::Shooter, Kind::Tank];
+    pub const ALL: [Kind; 10] = [
+        Kind::Chaser,
+        Kind::Swarm,
+        Kind::Shooter,
+        Kind::Tank,
+        Kind::Skirmisher,
+        Kind::Sniper,
+        Kind::Spinner,
+        Kind::Bomber,
+        Kind::Splitter,
+        Kind::Sentinel,
+    ];
 
     pub fn spec(self) -> Spec {
         let base = Spec {
@@ -104,6 +121,77 @@ impl Kind {
                 splits_into: Some((Kind::Chaser, 3)),
                 ..base
             },
+            Kind::Skirmisher => Spec {
+                hp: 5.0,
+                radius: 18.0,
+                score: 35,
+                hue: Hue::Cyan,
+                cost: 4,
+                first_wave: 6,
+                weight: 0.8,
+                faces_player: true,
+                ..base
+            },
+            Kind::Sniper => Spec {
+                hp: 6.0,
+                radius: 20.0,
+                score: 45,
+                hue: Hue::Red,
+                cost: 5,
+                first_wave: 7,
+                weight: 0.7,
+                faces_player: true,
+                ..base
+            },
+            Kind::Spinner => Spec {
+                hp: 9.0,
+                radius: 23.0,
+                score: 55,
+                hue: Hue::Violet,
+                cost: 5,
+                first_wave: 8,
+                weight: 0.6,
+                spin: 1.4,
+                ..base
+            },
+            Kind::Bomber => Spec {
+                hp: 14.0,
+                radius: 28.0,
+                score: 75,
+                hue: Hue::Orange,
+                cost: 7,
+                first_wave: 9,
+                weight: 0.5,
+                knockback: 2.0,
+                spin: 0.5,
+                big_death: true,
+                ..base
+            },
+            Kind::Splitter => Spec {
+                hp: 8.0,
+                radius: 24.0,
+                score: 50,
+                hue: Hue::Green,
+                cost: 5,
+                first_wave: 11,
+                weight: 0.7,
+                faces_player: true,
+                splits_into: Some((Kind::Swarm, 4)),
+                ..base
+            },
+            Kind::Sentinel => Spec {
+                hp: 12.0,
+                radius: 27.0,
+                score: 85,
+                hue: Hue::Yellow,
+                cost: 7,
+                first_wave: 12,
+                weight: 0.5,
+                knockback: 3.0,
+                spin: 0.35,
+                big_death: true,
+                ..base
+            },
         }
     }
 
@@ -147,7 +235,7 @@ pub struct Enemy {
     pub(super) id: u32,
     /// Tanks left alone at the end of a wave: faster, angrier.
     pub enraged: bool,
-    /// The current wind-up ends in a ranged volley (tanks) rather than a slam.
+    /// Tank volley instead of slam; sentinel fan instead of cross.
     pub(super) ranged: bool,
 }
 
@@ -183,7 +271,7 @@ pub struct Orb {
     pub(super) prev: V2,
     pub(super) vel: V2,
     pub(super) life: f32,
-    /// Tank volley orbs: bigger and slower than shooter bullets.
+    /// Heavy volleys and area denial: bigger and slower than shooter bullets.
     pub heavy: bool,
 }
 
@@ -365,7 +453,10 @@ impl Game {
                             &[0.0]
                         };
                         for a in spread {
-                            shots.push((e.pos + aim * 22.0, V2::from_angle(aim.angle() + a)));
+                            shots.push((
+                                e.pos + aim * 22.0,
+                                V2::from_angle(aim.angle() + a) * ORB_SPEED,
+                            ));
                         }
                         e.act = Act::Move;
                         e.cooldown = (1.5 + (e.phase * 7.0).fract() * 0.9) * cooldown;
@@ -404,6 +495,163 @@ impl Game {
                         }
                     }
                 }
+                (Kind::Skirmisher, Act::Move) => {
+                    let side = if e.phase > TAU / 2.0 { 1.0 } else { -1.0 };
+                    let radial = ((dist - 340.0) / 180.0).clamp(-1.0, 1.0);
+                    desired = (dir * radial * 180.0 + dir.perp() * side * 240.0) * speedup;
+                    steer = 4.0;
+                    if chasing && e.cooldown <= 0.0 && dist < 850.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 0.5;
+                    }
+                }
+                (Kind::Skirmisher, Act::Windup) => {
+                    // Keep strafing through the tell so its fan sweeps across the arena.
+                    desired =
+                        dir.perp() * if e.phase > TAU / 2.0 { 160.0 } else { -160.0 } * speedup;
+                    if e.act_t <= 0.0 {
+                        let n = if e.elite { 5 } else { 3 };
+                        for i in 0..n {
+                            let d = V2::from_angle(dir.angle() + (i - n / 2) as f32 * 0.2);
+                            shots.push((e.pos + d * 24.0, d * 315.0));
+                        }
+                        e.act = Act::Move;
+                        e.cooldown = 1.7 * cooldown;
+                    }
+                }
+                (Kind::Sniper, Act::Move) => {
+                    desired = dir * ((dist - 650.0) / 160.0).clamp(-1.0, 1.0) * 170.0 * speedup;
+                    if chasing && e.cooldown <= 0.0 && dist < 1400.0 {
+                        e.aim = dir;
+                        e.facing = dir.angle();
+                        e.act = Act::Windup;
+                        e.act_t = 1.15;
+                        // A stationary muzzle makes the locked sightline honest.
+                        e.vel = V2::default();
+                        desired = V2::default();
+                    }
+                }
+                (Kind::Sniper, Act::Windup) => {
+                    steer = 10.0;
+                    if e.act_t <= 0.0 {
+                        let n = if e.elite { 3 } else { 1 };
+                        for i in 0..n {
+                            let d = V2::from_angle(e.aim.angle() + (i - n / 2) as f32 * 0.065);
+                            shots.push((e.pos + d * 28.0, d * 720.0));
+                        }
+                        e.act = Act::Recover;
+                        e.act_t = 0.6;
+                        e.cooldown = 3.0 * cooldown;
+                    }
+                }
+                (Kind::Spinner, Act::Move) => {
+                    desired = dir * 70.0 * speedup + dir.perp() * 45.0;
+                    if chasing && e.cooldown <= 0.0 && dist < 1100.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 0.8;
+                    }
+                }
+                (Kind::Spinner, Act::Windup) => {
+                    steer = 6.0;
+                    if e.act_t <= 0.0 {
+                        let n = if e.elite { 12 } else { 8 };
+                        for i in 0..n {
+                            let d = V2::from_angle(e.spin + i as f32 * TAU / n as f32);
+                            shots.push((e.pos + d * 30.0, d * 285.0));
+                        }
+                        e.act = Act::Recover;
+                        e.act_t = 0.35;
+                        e.cooldown = 2.4 * cooldown;
+                    }
+                }
+                (Kind::Bomber, Act::Move) => {
+                    desired = dir * ((dist - 280.0) / 180.0).clamp(-0.5, 1.0) * 95.0 * speedup;
+                    steer = 1.4;
+                    if chasing && e.cooldown <= 0.0 && dist < 950.0 {
+                        e.act = Act::Windup;
+                        e.act_t = 1.0;
+                    }
+                }
+                (Kind::Bomber, Act::Windup) => {
+                    steer = 6.0;
+                    if e.act_t <= 0.0 {
+                        let n = if e.elite { 12 } else { 8 };
+                        for i in 0..n {
+                            let d = V2::from_angle(e.spin + i as f32 * TAU / n as f32);
+                            // Alternating speeds leave a staggered field with open lanes.
+                            let speed = if i % 2 == 0 { 100.0 } else { 145.0 };
+                            volleys.push((e.pos + d * 38.0, d * speed));
+                        }
+                        e.act = Act::Recover;
+                        e.act_t = 0.8;
+                        e.cooldown = 4.8 * cooldown;
+                    }
+                }
+                (Kind::Splitter, Act::Move) => {
+                    desired = (dir * 280.0
+                        + dir.perp() * (self.time * 5.0 + e.phase).sin() * 130.0)
+                        * speedup;
+                    steer = 4.0;
+                    if chasing && e.cooldown <= 0.0 && dist < 440.0 {
+                        e.aim = dir;
+                        e.act = Act::Windup;
+                        e.act_t = 0.55;
+                    }
+                }
+                (Kind::Splitter, Act::Windup) => {
+                    steer = 10.0;
+                    if e.act_t <= 0.0 {
+                        e.act = Act::Strike;
+                        e.act_t = 0.65;
+                        e.vel = e.aim * if e.elite { 880.0 } else { 720.0 };
+                        steer = 0.0;
+                        lunged = true;
+                    }
+                }
+                (Kind::Splitter, Act::Strike) => {
+                    steer = 0.0;
+                    if e.act_t <= 0.0 {
+                        e.act = Act::Recover;
+                        e.act_t = 0.3;
+                        e.cooldown = 2.3 * cooldown;
+                    }
+                }
+                (Kind::Sentinel, Act::Move) => {
+                    desired = dir * ((dist - 420.0) / 180.0).clamp(-1.0, 1.0) * 95.0 * speedup;
+                    steer = 2.0;
+                    if chasing && e.cooldown <= 0.0 && dist < 1100.0 {
+                        e.aim = dir;
+                        e.act = Act::Windup;
+                        e.act_t = 0.85;
+                    }
+                }
+                (Kind::Sentinel, Act::Windup) => {
+                    steer = 6.0;
+                    if e.act_t <= 0.0 {
+                        if e.ranged {
+                            let n = if e.elite { 9 } else { 7 };
+                            for i in 0..n {
+                                let d = V2::from_angle(e.aim.angle() + (i - n / 2) as f32 * 0.16);
+                                shots.push((e.pos + d * 34.0, d * 305.0));
+                            }
+                        } else {
+                            for i in 0..4 {
+                                let d = V2::from_angle(e.spin + i as f32 * TAU / 4.0);
+                                for speed in if e.elite {
+                                    &[180.0, 250.0, 320.0][..]
+                                } else {
+                                    &[210.0, 290.0][..]
+                                } {
+                                    shots.push((e.pos + d * 34.0, d * *speed));
+                                }
+                            }
+                        }
+                        e.ranged = !e.ranged;
+                        e.act = Act::Recover;
+                        e.act_t = 0.65;
+                        e.cooldown = 3.2 * cooldown;
+                    }
+                }
                 _ => {}
             }
             let desired = if chasing { desired } else { V2::default() };
@@ -431,7 +679,12 @@ impl Game {
                 let spin = e.kind.spec().spin;
                 // Winding up spins faster, part of the tell.
                 e.spin += dt * spin * if e.act == Act::Windup { 3.5 } else { 1.0 };
-                let turn = (dir.angle() - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;
+                let facing = if e.kind == Kind::Sniper && e.winding_up() {
+                    e.aim.angle()
+                } else {
+                    dir.angle()
+                };
+                let turn = (facing - e.facing + TAU / 2.0).rem_euclid(TAU) - TAU / 2.0;
                 e.facing += turn * (1.0 - (-6.0 * dt).exp());
             }
             e.stun = (e.stun - dt).max(0.0);
@@ -458,8 +711,8 @@ impl Game {
         if !shots.is_empty() {
             self.sfx.push(Sfx::EnemyShoot);
         }
-        for (pos, dir) in shots {
-            self.add_orb(pos, dir * ORB_SPEED);
+        for (pos, vel) in shots {
+            self.add_orb(pos, vel);
         }
         if !volleys.is_empty() {
             self.sfx.push(Sfx::BossBlast);
@@ -517,6 +770,212 @@ impl Game {
                 life: 6.0,
                 heavy: false,
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encounter(kind: Kind, elite: bool) -> Game {
+        let mut game = Game::new(7);
+        game.state = State::Playing;
+        game.player.pos = v2(900.0, 500.0);
+        game.add_enemy(kind, v2(600.0, 500.0), V2::default(), elite);
+        game.enemies[0].cooldown = 0.0;
+        game
+    }
+
+    fn volley(game: &mut Game, dt: f32) {
+        game.enemies[0].act = Act::Move;
+        game.enemies[0].cooldown = 0.0;
+        game.update_enemies(0.0);
+        assert!(game.enemies[0].winding_up());
+        assert!(game.orbs.is_empty(), "every volley starts with a tell");
+        for _ in 0..200 {
+            game.update_enemies(dt);
+            if !game.enemies[0].winding_up() {
+                return;
+            }
+        }
+        panic!("windup did not finish");
+    }
+
+    #[test]
+    fn ranged_enemies_telegraph_before_firing_at_all_frame_rates() {
+        for (kind, normal, elite_count) in [
+            (Kind::Skirmisher, 3, 5),
+            (Kind::Sniper, 1, 3),
+            (Kind::Spinner, 8, 12),
+            (Kind::Bomber, 8, 12),
+            (Kind::Sentinel, 8, 12),
+        ] {
+            for elite in [false, true] {
+                for fps in [30, 60, 144] {
+                    let mut game = encounter(kind, elite);
+                    volley(&mut game, 1.0 / fps as f32);
+                    assert_eq!(
+                        game.orbs.len(),
+                        if elite { elite_count } else { normal },
+                        "{kind:?}, elite {elite}, {fps} fps"
+                    );
+                    assert!(game.orbs.iter().all(|orb| {
+                        orb.life > 0.0
+                            && orb.life <= 7.0
+                            && orb.vel.len() >= 99.0
+                            && orb.vel.len() <= 721.0
+                    }));
+                    assert!(game.enemies[0].cooldown > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sniper_gives_a_full_second_to_leave_its_locked_sightline() {
+        let mut game = encounter(Kind::Sniper, false);
+        game.update_enemies(0.0);
+        let locked = game.enemies[0].facing;
+        game.player.pos = v2(900.0, 800.0);
+        game.update_enemies(1.0);
+        assert!(game.orbs.is_empty());
+        assert_eq!(game.enemies[0].facing, locked);
+        game.update_enemies(0.16);
+        assert_eq!(game.orbs.len(), 1);
+        assert!((game.orbs[0].vel - v2(720.0, 0.0)).len() < 1e-3);
+    }
+
+    #[test]
+    fn spinner_and_bomber_rings_leave_even_lanes_with_distinct_speeds() {
+        for kind in [Kind::Spinner, Kind::Bomber] {
+            let mut game = encounter(kind, false);
+            volley(&mut game, 1.0 / 60.0);
+            let directions: Vec<V2> = game.orbs.iter().map(|orb| orb.vel.norm()).collect();
+            for i in 0..directions.len() {
+                let a = directions[i].angle();
+                let b = directions[(i + 1) % directions.len()].angle();
+                let gap = (b - a).rem_euclid(TAU);
+                assert!((gap - TAU / 8.0).abs() < 1e-4);
+            }
+            if kind == Kind::Bomber {
+                assert!(game.orbs.iter().all(|orb| orb.heavy));
+                let slow = game.orbs.iter().filter(|orb| orb.vel.len() < 120.0).count();
+                assert_eq!(
+                    slow, 4,
+                    "stagger the field instead of forming one solid wall"
+                );
+                assert!(game.orbs.iter().all(|orb| orb.vel.len() < 150.0));
+            } else {
+                assert!(
+                    game.orbs
+                        .iter()
+                        .all(|orb| !orb.heavy && orb.vel.len() > 280.0)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sentinel_alternates_crosses_and_aimed_fans() {
+        let mut game = encounter(Kind::Sentinel, false);
+        volley(&mut game, 1.0 / 60.0);
+        assert_eq!(game.orbs.len(), 8);
+        for pair in game.orbs.as_chunks::<2>().0 {
+            assert!((pair[0].vel.norm() - pair[1].vel.norm()).len() < 1e-4);
+            assert!(pair[1].vel.len() > pair[0].vel.len() + 70.0);
+        }
+        game.orbs.clear();
+        volley(&mut game, 1.0 / 60.0);
+        assert_eq!(game.orbs.len(), 7);
+        let target = (game.player.pos - game.enemies[0].pos).norm();
+        assert!((game.orbs[3].vel.norm() - target).len() < 0.01);
+        game.orbs.clear();
+        volley(&mut game, 1.0 / 60.0);
+        assert_eq!(game.orbs.len(), 8);
+    }
+
+    #[test]
+    fn skirmishers_orbit_while_splitters_commit_to_a_long_rush() {
+        let mut skirmisher = encounter(Kind::Skirmisher, false);
+        skirmisher.enemies[0].cooldown = 10.0;
+        skirmisher.update_enemies(0.2);
+        let vel = skirmisher.enemies[0].vel;
+        assert!(vel.y.abs() > vel.x.abs() * 2.0);
+
+        let mut splitter = encounter(Kind::Splitter, false);
+        splitter.update_enemies(0.0);
+        splitter.update_enemies(0.4);
+        assert!(splitter.enemies[0].winding_up());
+        splitter.update_enemies(0.16);
+        assert_eq!(splitter.enemies[0].act, Act::Strike);
+        assert!(splitter.enemies[0].vel.len() > 700.0);
+        splitter.update_enemies(0.4);
+        assert_eq!(splitter.enemies[0].act, Act::Strike);
+        splitter.update_enemies(0.3);
+        assert_eq!(splitter.enemies[0].act, Act::Recover);
+    }
+
+    #[test]
+    fn splitter_children_do_not_split_again_or_bypass_split_suppression() {
+        for split in [false, true] {
+            let mut game = encounter(Kind::Splitter, true);
+            let splitter = game.enemies.pop().unwrap();
+            game.kill(splitter, split);
+            assert_eq!(game.enemies.len(), if split { 4 } else { 0 });
+            assert!(
+                game.enemies
+                    .iter()
+                    .all(|e| e.kind == Kind::Swarm && !e.elite)
+            );
+            let children = std::mem::take(&mut game.enemies);
+            for child in children {
+                game.kill(child, true);
+            }
+            assert!(game.enemies.is_empty());
+        }
+    }
+
+    #[test]
+    fn new_volleys_share_the_projectile_cap() {
+        for kind in [
+            Kind::Skirmisher,
+            Kind::Sniper,
+            Kind::Spinner,
+            Kind::Bomber,
+            Kind::Sentinel,
+        ] {
+            let mut game = encounter(kind, true);
+            for _ in 0..MAX_ORBS - 1 {
+                game.add_orb(v2(100.0, 100.0), V2::default());
+            }
+            game.enemies[0].act = Act::Windup;
+            game.enemies[0].aim = v2(1.0, 0.0);
+            game.enemies[0].act_t = 0.0;
+            game.update_enemies(0.0);
+            assert_eq!(game.orbs.len(), MAX_ORBS, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn wave_roster_introduces_new_enemies_progressively_and_spawns_every_kind() {
+        let mut game = Game::new(29);
+        game.state = State::Playing;
+        for wave in 1..=12 {
+            game.wave = wave;
+            game.budget = 3000;
+            game.spawns.clear();
+            while game.budget > 0 {
+                game.spawn_group();
+            }
+            for kind in Kind::ALL {
+                let available = kind.spec().first_wave <= game.effective_wave();
+                assert_eq!(
+                    game.spawns.iter().any(|spawn| spawn.kind == kind),
+                    available,
+                    "{kind:?}, wave {wave}"
+                );
+            }
         }
     }
 }

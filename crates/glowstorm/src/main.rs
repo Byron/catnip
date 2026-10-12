@@ -104,7 +104,7 @@ struct Options {
     /// Skip sound synthesis, audio initialization, and playback
     #[arg(long, env = "GLOWSTORM_NO_SOUND", value_parser = clap::builder::BoolishValueParser::new())]
     no_sound: bool,
-    /// Force the render scale (0.3–2.2); otherwise follow the terminal font size
+    /// Force the render scale (0.3–1.8); otherwise follow the terminal font size
     #[arg(long, env = "GLOWSTORM_SCALE", value_parser = parse_scale)]
     scale: Option<f32>,
     /// Target frames per second
@@ -228,7 +228,7 @@ mod tests {
             vec!["--scale", "NaN"],
             vec!["--scale", "inf"],
             vec!["--scale", "0.2"],
-            vec!["--scale", "2.3"],
+            vec!["--scale", "1.9"],
         ] {
             assert!(Options::try_parse_from(std::iter::once("glowstorm").chain(args)).is_err());
         }

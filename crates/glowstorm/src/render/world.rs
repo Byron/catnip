@@ -44,6 +44,12 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             Kind::Swarm => &sprites.swarm,
             Kind::Shooter => &sprites.shooter,
             Kind::Tank => &sprites.tank,
+            Kind::Skirmisher => &sprites.skirmisher,
+            Kind::Sniper => &sprites.enemy_sniper,
+            Kind::Spinner => &sprites.spinner,
+            Kind::Bomber => &sprites.bomber,
+            Kind::Splitter => &sprites.splitter,
+            Kind::Sentinel => &sprites.sentinel,
         };
         // Wind-ups blink white and shudder: the tell before an attack.
         let blink = e.winding_up() && (game.time * 18.0) as i32 % 2 == 0;
@@ -62,6 +68,18 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
             e.spin
         };
         draw.sprite(set.at(angle, white), e.pos + shudder, Z_ENEMIES);
+        if e.kind == Kind::Sniper && e.winding_up() {
+            let dir = V2::from_angle(e.facing);
+            let margin = v2(art::WALL, art::WALL);
+            let distance = ray_exit(e.pos, dir, margin, game.arena_size - margin);
+            for i in 1..=(distance / 32.0) as usize {
+                draw.sprite(
+                    sprites.spark[Hue::Red.index()][0],
+                    e.pos + dir * (i as f32 * 32.0),
+                    Z_ENEMIES - 1,
+                );
+            }
+        }
         if e.stun > 0.0 {
             for i in 0..3 {
                 let at = e.pos
@@ -371,13 +389,57 @@ fn draw_bfg(draw: &mut Draw, sprites: &Sprites, pos: V2, radius: f32, time: f32,
 pub(super) fn draw_boss(draw: &mut Draw, sprites: &Sprites, game: &Game, b: &crate::game::Boss) {
     let blink = b.stun <= 0.0 && b.windup > 0.0 && (game.time * 16.0) as i32 % 2 == 0;
     let white = b.flash > 0.0 || blink;
-    draw.sprite(sprites.boss_shell.at(b.spin, white), b.pos, Z_BOSS);
+    let shell = if b.kind == BossKind::Prism {
+        &sprites.boss_shell
+    } else {
+        &sprites.boss_crests[b.kind as usize - 1]
+    };
+    draw.sprite(shell.at(b.spin, white), b.pos, Z_BOSS);
     draw.sprite(sprites.boss_core.at(b.core_spin, white), b.pos, Z_BOSS + 1);
+    let hue = b.kind.hue();
+    let emitters = match b.kind {
+        BossKind::Prism => 8,
+        BossKind::Helix => 2,
+        BossKind::Lotus => 6,
+        BossKind::Loom => 4,
+        BossKind::Eclipse => 12,
+    };
+    for i in 0..emitters {
+        let a = b.spin + i as f32 * TAU / emitters as f32;
+        let radius = 54.0 + 5.0 * (b.core_spin + i as f32).sin();
+        draw.sprite(
+            sprites.spark[hue.index()][1],
+            b.pos + V2::from_angle(a) * radius,
+            Z_BOSS + 2,
+        );
+    }
+    if b.stun <= 0.0 && b.windup > 0.0 {
+        for i in 0..16 {
+            let a = b.emit_angle + i as f32 * TAU / 16.0;
+            let at = b.pos + V2::from_angle(a) * (70.0 + b.windup.min(1.0) * 60.0);
+            draw.sprite(sprites.spark[hue.index()][0], at, Z_BOSS + 2);
+        }
+    }
+    // Show the first gap before release; later curtains carry their own moving gaps.
+    if b.stun <= 0.0 && b.windup > 0.0 && b.pattern == Pattern::Curtain {
+        for offset in [-0.23, 0.23] {
+            let dir = V2::from_angle(b.emit_angle + offset);
+            let margin = v2(art::WALL, art::WALL);
+            let distance = ray_exit(b.pos, dir, margin, game.arena_size - margin);
+            for i in 2..=(distance / 42.0) as usize {
+                draw.sprite(
+                    sprites.spark[hue.index()][0],
+                    b.pos + dir * (i as f32 * 42.0),
+                    Z_BOSS - 1,
+                );
+            }
+        }
+    }
     // Charge tell: a blinking dotted line along the dash path.
     if b.stun <= 0.0 && b.charging() && (game.time * 12.0) as i32 % 2 == 0 {
         for i in 1..18 {
             let at = b.pos + b.charge_dir * (i as f32 * 40.0 + 40.0);
-            draw.sprite(sprites.spark[Hue::Violet.index()][1], at, Z_PARTICLES);
+            draw.sprite(sprites.spark[hue.index()][1], at, Z_PARTICLES);
         }
     }
 }

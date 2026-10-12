@@ -55,7 +55,7 @@ environment variable; command-line flags take precedence:
 |---|---|---|
 | `--no-sound` | `GLOWSTORM_NO_SOUND` | off |
 | `--fps <FPS>` | `GLOWSTORM_FPS` | 60 (valid range: 1–65535) |
-| `--scale <SCALE>` | `GLOWSTORM_SCALE` | automatic (override: 0.3–2.2) |
+| `--scale <SCALE>` | `GLOWSTORM_SCALE` | automatic (override: 0.3–1.8) |
 | `--wave <WAVE>` | `GLOWSTORM_WAVE` | 1 |
 | `--god` | `GLOWSTORM_GOD` | off |
 | `--cards` | `GLOWSTORM_CARDS` | off |
@@ -66,6 +66,8 @@ environment variable; command-line flags take precedence:
 Boolean environment values accept `1`/`0`, `true`/`false`, `yes`/`no`, or `on`/`off`.
 Invalid values produce a usage error. The requested FPS is a target; terminal
 rendering speed may limit the achieved rate.
+The render scale is capped at 1.8 to keep the expanded sprite atlas and base arena
+within kitty's image budget.
 
 | Control | Action |
 |---|---|
@@ -84,8 +86,32 @@ rendering speed may limit the achieved rate.
 
 Enemies come in waves, and every attack starts with a visible wind-up:
 chasers lunge, swarms flank, shooters lead their shots, and tanks slam out a
-shockwave when you get close. Every fifth wave, PRISM arrives: a three-phase
-boss with bullet rings, spirals, charges and summoned minions.
+shockwave when you get close. Six more enemies join the roster as the run advances:
+
+| Enemy | First wave (Medium) | What to watch for |
+|---|---|---|
+| Skirmisher | 6 | Circles and strafes while firing narrow fans. |
+| Sniper | 7 | Locks a firing line during a long wind-up, then fires fast rounds. |
+| Spinner | 8 | Sends rotating radial volleys through the arena. |
+| Bomber | 9 | Lobs staggered rings of slow, heavy bullets while other enemies close in. |
+| Splitter | 11 | Rushes into the fight and breaks into a swarm on death. |
+| Sentinel | 12 | Alternates crossfire with aimed barrages. |
+
+Every fifth wave brings a boss. All five have three health phases, visible
+attack warnings, and recovery windows; later phases add denser bullet patterns.
+
+| Boss | First appearance | Attack style |
+|---|---|---|
+| PRISM | Wave 5 | Rings, aimed fans, spirals, charges, and summoned minions. |
+| HELIX | Wave 10 | Counter-rotating spiral arms weave crossing paths. |
+| LOTUS | Wave 15 | Flower-shaped barrages leave gaps between the petals. |
+| LOOM | Wave 20 | Sweeping curtains carry moving gaps between their rows of bullets. |
+| ECLIPSE | Wave 25 | Rotating crosses interleave with aimed fire and ring pressure. |
+
+The boss cycle repeats from wave 30. Shoot through incoming bullets to open a
+path, follow the gaps, and use the warnings to reposition before each barrage.
+To practice a specific encounter, start with `glowstorm --wave 10` (HELIX),
+`--wave 15` (LOTUS), `--wave 20` (LOOM), or `--wave 25` (ECLIPSE).
 
 From wave 6, rare elite enemies show up with a gold ring: three times the
 health, a nastier attack, and guaranteed loot. After each boss you pick one of

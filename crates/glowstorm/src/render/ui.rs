@@ -37,7 +37,7 @@ impl Renderer {
             );
             text.hud(game, stats, self.sprites_drawn);
             if let Some(b) = &game.boss {
-                text.boss_bar(b.hp / b.max_hp, b.phase(), b.entering);
+                text.boss_bar(b);
             }
         } else {
             kitty::delete_placement(text.out, SHADE_ID, 1);
@@ -139,6 +139,11 @@ impl Renderer {
                 if (game.time * 4.0) as i32 % 2 == 0 {
                     text.big(row(0.18), TextSize::Medium, Hue::Red, "WARNING");
                 }
+                let kind = game
+                    .boss
+                    .as_ref()
+                    .map_or_else(|| BossKind::for_level(game.wave / 5), |b| b.kind);
+                text.big(row(0.3), TextSize::Small, Hue::White, kind.name());
             }
             State::Playing if game.wave_clear > 0.0 => {
                 text.big(row(0.2), TextSize::Medium, Hue::Cyan, "WAVE CLEAR");
@@ -312,25 +317,30 @@ impl Text<'_> {
     }
 
     /// Boss name and a segmented health bar under the HUD row.
-    pub(super) fn boss_bar(&mut self, health: f32, phase: u32, entering: f32) {
+    pub(super) fn boss_bar(&mut self, boss: &crate::game::Boss) {
         const SEGMENTS: usize = 48;
-        let r = self.big(3, TextSize::Small, Hue::Violet, "PRISM");
+        let hue = if boss.kind == BossKind::Prism {
+            Hue::Violet
+        } else {
+            Hue::White
+        };
+        let r = self.big(3, TextSize::Small, hue, boss.kind.name());
         let cell_h = self.win.cell().1 as f32;
         let y = (3 + r) as f32 * cell_h - cell_h * 0.3;
-        let seg = self.sprites.boss_seg;
+        let seg = self.sprites.boss_seg[boss.kind as usize];
         let spacing = 10.0 * self.scale;
         let left = self.win.width as f32 / 2.0 - spacing * (SEGMENTS as f32 - 1.0) / 2.0;
         // The bar fills up during the entrance.
-        let shown = if entering > 0.0 {
-            1.0 - entering / 2.4
+        let shown = if boss.entering > 0.0 {
+            1.0 - boss.entering / 2.4
         } else {
-            health
+            boss.hp / boss.max_hp
         };
         let lit = (shown * SEGMENTS as f32).ceil() as usize;
         for i in 0..SEGMENTS {
             let frame = if i >= lit {
                 self.sprites.heat_off
-            } else if phase >= 3 {
+            } else if boss.phase() >= 3 {
                 self.sprites.heat[3]
             } else {
                 seg

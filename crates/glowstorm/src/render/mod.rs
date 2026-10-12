@@ -13,7 +13,10 @@ use catnip::{
 
 use crate::{
     art::{self, Hue, Sprites, TextSize},
-    game::{Difficulty, Game, Kind, POPUP_TIME, PickupKind, SHOCK_RADIUS, State, V2, card_span},
+    game::{
+        BossKind, Difficulty, Game, Kind, POPUP_TIME, Pattern, PickupKind, SHOCK_RADIUS, State, V2,
+        card_span,
+    },
 };
 
 mod arsenal;

@@ -25,6 +25,12 @@ pub struct Sprites {
     pub swarm: Flashing,
     pub shooter: Flashing,
     pub tank: Flashing,
+    pub skirmisher: Flashing,
+    pub enemy_sniper: Flashing,
+    pub spinner: Flashing,
+    pub bomber: Flashing,
+    pub splitter: Flashing,
+    pub sentinel: Flashing,
     pub orb: Frame,
     pub heavy_orb: Frame,
     /// [hue][size]
@@ -41,9 +47,11 @@ pub struct Sprites {
     pub heat: [Frame; 4],
     pub heat_off: Frame,
     pub boss_shell: Flashing,
+    /// Helix, Lotus, Loom and Eclipse; the core and emitters supply their motion.
+    pub boss_crests: [Flashing; 4],
     pub boss_core: Flashing,
     /// Boss health bar segment.
-    pub boss_seg: Frame,
+    pub boss_seg: [Frame; 5],
     /// Dim drifting background specks: [cyan, violet].
     pub mote: [Frame; 2],
     /// Rotating gold dashed rings marking elites: [small, big].
@@ -320,6 +328,128 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         },
     );
 
+    let skirmisher = rotations(
+        &mut atlas,
+        s,
+        18.0,
+        Hue::Cyan.color(),
+        16,
+        TAU,
+        &|l, b, c, r, angle| {
+            let pts = rotate(
+                &[(1.0, 0.0), (-0.85, 0.8), (-0.5, 0.0), (-0.85, -0.8)],
+                angle,
+                c,
+                r,
+            );
+            b.fill_polygon(&pts, 0.7);
+            l.stroke_polygon(&pts, line(2.2));
+            let wings = rotate(&[(-0.2, -0.95), (0.5, 0.0), (-0.2, 0.95)], angle, c, r);
+            l.line(wings[0], wings[1], line(2.0));
+            l.line(wings[1], wings[2], line(2.0));
+        },
+    );
+    let enemy_sniper = rotations(
+        &mut atlas,
+        s,
+        20.0,
+        Hue::Red.color(),
+        16,
+        TAU,
+        &|l, b, c, r, angle| {
+            let hull = rotate(
+                &[(0.3, 0.0), (-0.65, 0.7), (-0.9, 0.0), (-0.65, -0.7)],
+                angle,
+                c,
+                r,
+            );
+            b.fill_polygon(&hull, 0.8);
+            l.stroke_polygon(&hull, line(2.2));
+            for y in [-0.2, 0.2] {
+                let barrel = rotate(&[(-0.25, y), (1.0, y)], angle, c, r);
+                l.line(barrel[0], barrel[1], line(2.2));
+            }
+        },
+    );
+    let spinner = rotations(
+        &mut atlas,
+        s,
+        23.0,
+        Hue::Violet.color(),
+        8,
+        TAU / 3.0,
+        &|l, b, c, r, angle| {
+            l.stroke_circle(c, r * 0.28, line(2.0));
+            for arm in 0..3 {
+                let blade = rotate(
+                    &[(0.15, -0.12), (1.0, -0.35), (0.65, 0.4), (0.4, 0.0)],
+                    angle + arm as f32 * TAU / 3.0,
+                    c,
+                    r,
+                );
+                b.fill_polygon(&blade, 0.8);
+                l.stroke_polygon(&blade, line(2.2));
+            }
+        },
+    );
+    let bomber = rotations(
+        &mut atlas,
+        s,
+        28.0,
+        Hue::Orange.color(),
+        8,
+        TAU / 4.0,
+        &|l, b, c, r, angle| {
+            let hull = rotate(&polygon(4, PI / 4.0), angle, c, r * 0.78);
+            b.fill_polygon(&hull, 0.8);
+            l.stroke_polygon(&hull, line(2.8));
+            for at in rotate(&polygon(4, 0.0), angle, c, r * 0.8) {
+                l.stroke_circle(at, r * 0.18, line(2.2));
+            }
+            l.stroke_circle(c, r * 0.25, line(2.2));
+        },
+    );
+    let splitter = rotations(
+        &mut atlas,
+        s,
+        24.0,
+        Hue::Green.color(),
+        16,
+        TAU,
+        &|l, b, c, r, angle| {
+            for side in [-1.0, 1.0] {
+                let half = rotate(
+                    &[
+                        (0.8, side * 0.12),
+                        (-0.35, side * 0.95),
+                        (-0.9, side * 0.12),
+                    ],
+                    angle,
+                    c,
+                    r,
+                );
+                b.fill_polygon(&half, 0.8);
+                l.stroke_polygon(&half, line(2.4));
+            }
+        },
+    );
+    let sentinel = rotations(
+        &mut atlas,
+        s,
+        27.0,
+        Hue::Yellow.color(),
+        8,
+        TAU / 4.0,
+        &|l, b, c, r, angle| {
+            let hull = rotate(&polygon(4, 0.0), angle, c, r);
+            b.fill_polygon(&hull, 0.7);
+            l.stroke_polygon(&hull, line(3.0));
+            let shield = rotate(&polygon(4, 0.0), angle, c, r * 0.65);
+            l.stroke_polygon(&shield, line(2.2));
+            l.fill_circle(c, r * 0.15, 1.0);
+        },
+    );
+
     let orb = atlas.add(glow_dot((22.0 * s) as u32, Hue::Red.color(), 0.45));
     let heavy_orb = atlas.add(glow_dot((38.0 * s) as u32, hex(0xff6a2b), 0.4));
 
@@ -393,7 +523,14 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
     let heat =
         [hex(0x3df2ff), hex(0xffe14d), hex(0xff8a2b), hex(0xff3b4e)].map(|c| atlas.add(segment(c)));
     let heat_off = atlas.add(segment(hex(0x2a3550)).with_alpha(0.7));
-    let boss_seg = atlas.add(segment(Hue::Violet.color()));
+    let boss_seg = [
+        Hue::Violet,
+        Hue::Cyan,
+        Hue::Magenta,
+        Hue::Orange,
+        Hue::Yellow,
+    ]
+    .map(|hue| atlas.add(segment(hue.color())));
 
     // Boss: an eight-point shell around a counter-rotating triangle core.
     let boss_shell = rotations(
@@ -411,6 +548,71 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
             l.stroke_polygon(&ring, line(2.2));
         },
     );
+    // One shell frame per new boss keeps the atlas within terminal image quotas.
+    let boss_crests = [Hue::Cyan, Hue::Magenta, Hue::Orange, Hue::Yellow].map(|hue| {
+        rotations(
+            &mut atlas,
+            s,
+            66.0,
+            hue.color(),
+            1,
+            TAU,
+            &|l, b, c, r, _| match hue {
+                Hue::Cyan => {
+                    for side in [-1.0, 1.0] {
+                        let wing = rotate(
+                            &[
+                                (0.0, side * 0.2),
+                                (0.65, side * 0.35),
+                                (0.95, side * 0.75),
+                                (0.15, side * 0.95),
+                                (-0.8, side * 0.6),
+                                (-0.6, side * 0.2),
+                            ],
+                            0.0,
+                            c,
+                            r,
+                        );
+                        b.fill_polygon(&wing, 0.7);
+                        l.stroke_polygon(&wing, line(3.0));
+                    }
+                }
+                Hue::Magenta => {
+                    for petal in 0..6 {
+                        let pts = rotate(
+                            &[(0.25, 0.0), (0.65, -0.3), (1.0, 0.0), (0.65, 0.3)],
+                            petal as f32 * TAU / 6.0,
+                            c,
+                            r,
+                        );
+                        b.fill_polygon(&pts, 0.75);
+                        l.stroke_polygon(&pts, line(2.8));
+                    }
+                }
+                Hue::Orange => {
+                    for arm in 0..4 {
+                        let rail = rotate(
+                            &[(0.25, -0.23), (0.95, -0.23), (0.95, 0.23), (0.25, 0.23)],
+                            arm as f32 * TAU / 4.0,
+                            c,
+                            r,
+                        );
+                        b.fill_polygon(&rail, 0.8);
+                        l.stroke_polygon(&rail, line(3.0));
+                    }
+                    l.stroke_circle(c, r * 0.62, line(2.2));
+                }
+                _ => {
+                    l.stroke_circle(c, r * 0.88, line(4.0));
+                    l.stroke_circle(c, r * 0.68, line(2.2));
+                    for ray in 0..12 {
+                        let ends = rotate(&[(0.8, 0.0), (1.0, 0.0)], ray as f32 * TAU / 12.0, c, r);
+                        l.line(ends[0], ends[1], line(3.2));
+                    }
+                }
+            },
+        )
+    });
     let boss_core = rotations(
         &mut atlas,
         s,
@@ -487,6 +689,12 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         swarm,
         shooter,
         tank,
+        skirmisher,
+        enemy_sniper,
+        spinner,
+        bomber,
+        splitter,
+        sentinel,
         orb,
         heavy_orb,
         spark,
@@ -498,6 +706,7 @@ pub fn build_sprites(s: f32) -> (Vec<Image>, Sprites) {
         heat,
         heat_off,
         boss_shell,
+        boss_crests,
         boss_core,
         boss_seg,
         mote,
