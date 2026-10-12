@@ -264,6 +264,66 @@ mod tests {
     use crossterm::event::{KeyEvent, MouseEvent};
 
     #[test]
+    fn shift_movement_allows_turning_and_firing_in_every_direction() {
+        let view = View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        };
+        for keys in ["w", "a", "s", "d", "wa", "wd", "sa", "sd"] {
+            let mut game = Game::new(7);
+            game.state = crate::game::State::Playing;
+            let mut input = Input::default();
+            for key in keys.chars() {
+                handle(
+                    Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::SHIFT)),
+                    &mut input,
+                    &mut game,
+                );
+            }
+            for (column, row, angle) in [(1400, 750, 0.0), (1200, 950, std::f32::consts::FRAC_PI_2)]
+            {
+                game.player.pos = v2(1200.0, 750.0);
+                game.cam = v2(0.0, 0.0);
+                let mouse = |kind| {
+                    Event::Mouse(MouseEvent {
+                        kind,
+                        column: column - 1,
+                        row: row - 1,
+                        modifiers: KeyModifiers::SHIFT,
+                    })
+                };
+                handle(mouse(MouseEventKind::Moved), &mut input, &mut game);
+                handle(
+                    mouse(MouseEventKind::Down(MouseButton::Left)),
+                    &mut input,
+                    &mut game,
+                );
+                let shots = game.bullets.len();
+                game.update(0.11, &input, &view);
+                assert!(input.boost && input.fire);
+                assert!((game.player.aim - angle).abs() < 1e-5);
+                assert_eq!(game.bullets.len(), shots + 1);
+                assert!(
+                    game.bullets
+                        .last()
+                        .unwrap()
+                        .vel
+                        .norm()
+                        .dot(crate::game::V2::from_angle(angle))
+                        > 0.99
+                );
+                assert!(game.player.vel.len() > 0.0);
+                handle(
+                    mouse(MouseEventKind::Up(MouseButton::Left)),
+                    &mut input,
+                    &mut game,
+                );
+                assert!(!input.fire && input.boost);
+            }
+        }
+    }
+
+    #[test]
     fn shift_thrust_tracks_both_keys_modifiers_release_and_focus_loss() {
         let mut game = Game::new(7);
         let mut input = Input::default();

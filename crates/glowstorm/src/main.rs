@@ -150,7 +150,14 @@ fn relaunch_in_supported_terminal() -> bool {
 
     let mut kitty = Command::new("kitty");
     kitty
-        .args(["--detach", "--start-as=maximized", "--title", "Glowstorm"])
+        .args([
+            "--detach",
+            "--start-as=maximized",
+            "--title",
+            "Glowstorm",
+            "-o",
+            "clear_all_mouse_actions=yes",
+        ])
         .arg(&exe);
     if quiet(kitty).status().is_ok_and(|s| s.success()) {
         return true;

@@ -174,6 +174,12 @@ giving about twice the forward speed. Moving backward engages two smaller front
 thrusters for a weaker but noticeable boost. Thrust adds to gun heat, leaving less
 room for firing or charging; overheating disables the extra thrust until you cool.
 Sideways movement keeps its usual speed, and Coolant reduces thrust heat too.
+Keep aiming and firing with the mouse while holding Shift. Ghostty receives
+Shift-modified mouse input during the game; its `mouse-shift-capture = never`
+setting prevents this, so use the default `false` if you want to thrust and fire.
+Automatically opened kitty windows disable terminal mouse bindings for the game.
+When starting directly in kitty, use `kitty -o clear_all_mouse_actions=yes glowstorm`
+to open a game window where Shift-click reaches the ship instead of selecting text.
 
 Hold middle mouse or E to charge the gatling gun (about 0.6 seconds from cold),
 then release a rapid spread barrage. Keep aiming as it fires. Longer charges
