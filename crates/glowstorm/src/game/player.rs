@@ -262,7 +262,11 @@ impl Game {
             }
         }
         p.invuln -= dt;
-        p.rapid_t -= dt;
+        p.rapid_t = if self.dev.rapid_fire {
+            RAPID_TIME
+        } else {
+            p.rapid_t - dt
+        };
         let wants_dash = input.dash || input.hit(&[KeyCode::Char(' '), KeyCode::Char('r')]);
         let roll_held = input.spin || input.down(&[KeyCode::Char(' '), KeyCode::Char('r')]);
         // Offensive charging does not spend a dash charge or wait for evasion cooldown.

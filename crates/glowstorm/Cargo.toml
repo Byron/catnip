@@ -11,4 +11,5 @@ categories = ["games", "command-line-utilities"]
 
 [dependencies]
 catnip = { package = "catnip-engine", version = "0.1.0", path = "../catnip" }
+clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.28"

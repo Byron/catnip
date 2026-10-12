@@ -41,6 +41,32 @@ Use `glowstorm --no-sound` (or `cargo run --release -- --no-sound`) to skip soun
 synthesis, audio initialization, and playback when comparing frame rates.
 `glowstorm -h` or `glowstorm --help` shows the available options.
 
+The frame rate defaults to **60 FPS**; use `--fps 144` to change the target.
+Start with spread shot and permanent rapid fire (the lightning-bolt pickup) with:
+
+```sh
+glowstorm --spread-shot --rapid-fire --fps 144
+```
+
+`--lightning` is an alias for `--rapid-fire`. Every game setting also accepts an
+environment variable; command-line flags take precedence:
+
+| Flag | Environment variable | Default |
+|---|---|---|
+| `--no-sound` | `GLOWSTORM_NO_SOUND` | off |
+| `--fps <FPS>` | `GLOWSTORM_FPS` | 60 (valid range: 1–65535) |
+| `--scale <SCALE>` | `GLOWSTORM_SCALE` | automatic (override: 0.3–2.2) |
+| `--wave <WAVE>` | `GLOWSTORM_WAVE` | 1 |
+| `--god` | `GLOWSTORM_GOD` | off |
+| `--cards` | `GLOWSTORM_CARDS` | off |
+| `--perfect-cooling` | `GLOWSTORM_PERFECT_COOLING` | off |
+| `--spread-shot` | `GLOWSTORM_SPREAD_SHOT` | off |
+| `--rapid-fire` / `--lightning` | `GLOWSTORM_RAPID_FIRE` | off |
+
+Boolean environment values accept `1`/`0`, `true`/`false`, `yes`/`no`, or `on`/`off`.
+Invalid values produce a usage error. The requested FPS is a target; terminal
+rendering speed may limit the achieved rate.
+
 | Control | Action |
 |---|---|
 | WASD | move |
@@ -267,13 +293,15 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
-`GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` prevents death but keeps hit reactions, and
-`GLOWSTORM_CARDS=1` opens the upgrade screen right away, and `GLOWSTORM_SCALE=0.8`
-forces a render scale (0.3–2.2).
-`GLOWSTORM_PERFECT_COOLING=1` removes all gun, charge, and thrust heat, allowing
+`--wave 6` starts at wave 6, `--god` prevents death but keeps hit reactions, and
+`--cards` opens the upgrade screen right away. `--scale 0.8` forces a render scale.
+`--perfect-cooling` removes all gun, charge, and thrust heat, allowing
 continuous fire and boost. Charged weapons still fill normally, then hold full
 charge until released, without an overheat penalty or heat timing bonus.
-Runs with any of them set don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
+Runs that skip waves or enable god mode, cards, perfect cooling, spread shot, or
+permanent rapid fire don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
+The internal `GLOWSTORM_RELAUNCHED=1` setting (also accepted as the hidden
+`--relaunched` flag) prevents repeated attempts to open a supported terminal.
 
 ## License
 

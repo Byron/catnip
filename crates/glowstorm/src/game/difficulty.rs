@@ -114,6 +114,12 @@ impl Game {
     pub(super) fn set_difficulty(&mut self, difficulty: Difficulty) {
         self.difficulty = difficulty;
         self.player = Player::new(difficulty.hearts());
+        if self.dev.spread_shot {
+            self.player.upgrades.add(Upgrade::Spread);
+        }
+        if self.dev.rapid_fire {
+            self.player.rapid_t = RAPID_TIME;
+        }
         self.player.pos = self.arena_size * 0.5;
         self.best_path = best_score_path(difficulty);
         self.best = load_best(self.best_path.as_ref());

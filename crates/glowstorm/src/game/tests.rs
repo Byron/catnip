@@ -2,6 +2,85 @@
 
 use super::*;
 
+#[test]
+fn launch_settings_and_powerups_survive_restarts_and_title_screen() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let mut game = Game::new(7);
+    game.dev = DevFlags {
+        first_wave: 6,
+        god: true,
+        cards: true,
+        perfect_cooling: true,
+        spread_shot: true,
+        rapid_fire: true,
+    };
+    game.set_difficulty(Difficulty::Hard);
+    for _ in 0..2 {
+        game.start();
+        assert_eq!(game.state, State::Upgrade);
+        assert_eq!(game.wave, 6);
+        assert_eq!(game.difficulty, Difficulty::Hard);
+        assert!(game.dev.god && game.dev.cards && game.dev.perfect_cooling);
+        assert_eq!(game.player.upgrades.level(Upgrade::Spread), 1);
+        game.update_player(RAPID_TIME + 1.0, &Input::default(), &view);
+        assert!(game.player.rapid_t > 0.0, "forced rapid fire never expires");
+        game.update_player(
+            0.0,
+            &Input {
+                fire: true,
+                ..Input::default()
+            },
+            &view,
+        );
+        assert_eq!(game.bullets.len(), 3, "spread shot fires three bullets");
+        assert!(
+            (game.player.fire_cd - 0.055).abs() < 1e-6,
+            "rapid fire halves the interval"
+        );
+        assert_eq!(game.player.heat, 0.0);
+        game.state = State::GameOver;
+        game.update(
+            0.0,
+            &Input {
+                pressed: vec![KeyCode::Esc],
+                ..Input::default()
+            },
+            &view,
+        );
+        assert_eq!(game.state, State::Title);
+        assert!(game.dev.spread_shot && game.dev.rapid_fire);
+        assert_eq!(game.player.upgrades.level(Upgrade::Spread), 1);
+    }
+}
+
+#[test]
+fn forced_powerups_do_not_overwrite_best_scores() {
+    let view = View {
+        scale: 1.0,
+        size: v2(1600.0, 900.0),
+    };
+    let dir = std::env::temp_dir().join(format!("glowstorm-powerups-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("best_score");
+    for rapid_fire in [false, true] {
+        std::fs::write(&path, "42").unwrap();
+        let mut game = Game::new(7);
+        game.best_path = Some(path.clone());
+        game.best = 42;
+        game.score = 100;
+        game.dev.spread_shot = !rapid_fire;
+        game.dev.rapid_fire = rapid_fire;
+        game.state = State::Dying;
+        game.update(0.0, &Input::default(), &view);
+        assert_eq!(game.state, State::GameOver);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "42");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 const EXTRA_WEAPONS: [(char, Weapon); 6] = [
     ('5', Weapon::Gravity),
     ('6', Weapon::Ricochet),

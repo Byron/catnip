@@ -18,8 +18,6 @@ use crate::{
     sound::Audio,
 };
 
-const FRAME: Duration = Duration::from_micros(16_667);
-
 /// Why the frame loop ended.
 pub enum Exit {
     Quit,
@@ -34,7 +32,9 @@ pub fn run(
     floor: Image,
     sprites: &Sprites,
     audio: Option<&Audio>,
+    options: &crate::Options,
 ) -> io::Result<Exit> {
+    let frame_time = Duration::from_secs_f64(1.0 / f64::from(options.fps));
     let mut out = io::stdout().lock();
     upload_images(&mut out, &atlas, &floor)?;
     // Fail with a clear message instead of running with invisible sprites.
@@ -50,6 +50,7 @@ pub fn run(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut game = Game::new(seed);
+    game.dev = options.dev;
     let mut input = Input::default();
     let mut meter = Meter::new();
     let mut frame = Vec::with_capacity(1 << 18);
@@ -70,8 +71,10 @@ pub fn run(
             }
         }
         let now = Instant::now();
-        deadline = (deadline + FRAME).max(now);
-        let dt = (now - last).as_secs_f32().min(1.0 / 30.0);
+        deadline = (deadline + frame_time).max(now);
+        let dt = (now - last)
+            .as_secs_f32()
+            .min(frame_time.as_secs_f32().max(1.0 / 30.0));
         last = now;
         let started = Instant::now();
 

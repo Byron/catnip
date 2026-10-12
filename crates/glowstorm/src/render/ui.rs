@@ -381,7 +381,10 @@ impl Text<'_> {
             let _ = write!(left, "  \x1b[38;2;255;59;78m{}", game.difficulty.name());
         }
         if p.rapid_t > 0.0 {
-            let _ = write!(left, "  \x1b[38;2;255;225;77mRAPID {:.1}s", p.rapid_t);
+            let _ = write!(left, "  \x1b[38;2;255;225;77mRAPID");
+            if !game.dev.rapid_fire {
+                let _ = write!(left, " {:.1}s", p.rapid_t);
+            }
         }
         let charges = if p.max_dash_charges() > 1 {
             format!(" x{}", p.dash_charges)

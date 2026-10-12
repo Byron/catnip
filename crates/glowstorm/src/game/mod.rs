@@ -100,7 +100,7 @@ pub struct Game {
     rng: Rng,
     pub sfx: Vec<Sfx>,
     best_path: Option<PathBuf>,
-    dev: DevFlags,
+    pub(crate) dev: DevFlags,
     pub shockwaves: Vec<Shockwave>,
     pub popups: Vec<Popup>,
     pub motes: Vec<Mote>,
@@ -122,28 +122,38 @@ pub struct Game {
     snap_camera: bool,
 }
 
-/// Developer switches read from the environment, for testing later waves:
-/// `GLOWSTORM_WAVE=6` starts at wave 6, `GLOWSTORM_GOD=1` prevents death but keeps hit reactions.
-#[derive(Clone, Copy)]
-struct DevFlags {
-    first_wave: u32,
-    god: bool,
-    /// `GLOWSTORM_CARDS=1`: open the upgrade screen right away.
-    cards: bool,
-    perfect_cooling: bool,
+/// Developer switches for testing waves and power-ups.
+#[derive(Clone, Copy, Debug, clap::Args)]
+pub(crate) struct DevFlags {
+    /// Start at this wave
+    #[arg(long = "wave", env = "GLOWSTORM_WAVE", default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+    pub first_wave: u32,
+    /// Prevent death while keeping hit reactions
+    #[arg(long, env = "GLOWSTORM_GOD", value_parser = clap::builder::BoolishValueParser::new())]
+    pub god: bool,
+    /// Open the upgrade screen at the start of each run
+    #[arg(long, env = "GLOWSTORM_CARDS", value_parser = clap::builder::BoolishValueParser::new())]
+    pub cards: bool,
+    /// Remove all gun, charge, and thrust heat
+    #[arg(long, env = "GLOWSTORM_PERFECT_COOLING", value_parser = clap::builder::BoolishValueParser::new())]
+    pub perfect_cooling: bool,
+    /// Start each run with the spread-shot upgrade
+    #[arg(long, env = "GLOWSTORM_SPREAD_SHOT", value_parser = clap::builder::BoolishValueParser::new())]
+    pub spread_shot: bool,
+    /// Keep the lightning-bolt pickup's double firing rate active
+    #[arg(long, visible_alias = "lightning", env = "GLOWSTORM_RAPID_FIRE", value_parser = clap::builder::BoolishValueParser::new())]
+    pub rapid_fire: bool,
 }
 
-impl DevFlags {
-    fn from_env() -> Self {
+impl Default for DevFlags {
+    fn default() -> Self {
         Self {
-            first_wave: std::env::var("GLOWSTORM_WAVE")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(1)
-                .max(1),
-            god: std::env::var_os("GLOWSTORM_GOD").is_some(),
-            cards: std::env::var_os("GLOWSTORM_CARDS").is_some(),
-            perfect_cooling: std::env::var_os("GLOWSTORM_PERFECT_COOLING").is_some(),
+            first_wave: 1,
+            god: false,
+            cards: false,
+            perfect_cooling: false,
+            spread_shot: false,
+            rapid_fire: false,
         }
     }
 }
@@ -195,7 +205,7 @@ impl Game {
             rng: Rng(seed | 1),
             sfx: Vec::new(),
             best_path,
-            dev: DevFlags::from_env(),
+            dev: DevFlags::default(),
             shockwaves: Vec::new(),
             popups: Vec::new(),
             motes: Vec::new(),
@@ -259,8 +269,10 @@ impl Game {
     fn start(&mut self) {
         let difficulty = self.difficulty;
         let arena_size = self.arena_size;
+        let dev = self.dev;
         let seed = self.rng.next();
         *self = Game::new(seed);
+        self.dev = dev;
         self.resize_arena(arena_size);
         self.set_difficulty(difficulty);
         self.state = State::Playing;
@@ -400,7 +412,9 @@ impl Game {
                         let dev_run = self.dev.first_wave > 1
                             || self.dev.god
                             || self.dev.cards
-                            || self.dev.perfect_cooling;
+                            || self.dev.perfect_cooling
+                            || self.dev.spread_shot
+                            || self.dev.rapid_fire;
                         if let Some(path) = self.best_path.as_ref().filter(|_| !dev_run) {
                             if let Some(dir) = path.parent() {
                                 let _ = std::fs::create_dir_all(dir);
@@ -425,8 +439,10 @@ impl Game {
                 } else if input.hit(&[KeyCode::Esc]) {
                     let difficulty = self.difficulty;
                     let arena_size = self.arena_size;
+                    let dev = self.dev;
                     let seed = self.rng.next();
                     *self = Game::new(seed);
+                    self.dev = dev;
                     self.resize_arena(arena_size);
                     self.set_difficulty(difficulty);
                 }
