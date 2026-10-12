@@ -97,6 +97,20 @@ shockwave when you get close. Six more enemies join the roster as the run advanc
 | Splitter | 11 | Rushes into the fight and breaks into a swarm on death. |
 | Sentinel | 12 | Alternates crossfire with aimed barrages. |
 
+Each ordinary wave uses at most three enemy types, including enemies created on
+death. Opening waves introduce new types in focused combinations; groups take
+turns spawning so the whole combination appears. From wave 12 on Medium, these
+six combinations repeat, skipping boss waves:
+
+| Enemies | Play style |
+|---|---|
+| Sentinel + Sniper | Dodge barrages while keeping clear of locked firing lines. |
+| Bomber + Spinner + Skirmisher | Weave through slow fields and radial fire while being flanked. |
+| Splitter + Swarm + Shooter | Manage rushing packs while dodging ranged support. |
+| Tank + Chaser + Sniper | Make space around heavy enemies without retreating into sniper fire. |
+| Sentinel + Skirmisher + Swarm | Keep moving through crossfire and encircling enemies. |
+| Chaser + Shooter + Spinner | Alternate between evading lunges and threading bullet gaps. |
+
 Every fifth wave brings a boss. All five have three health phases, visible
 attack warnings, and recovery windows; later phases add denser bullet patterns.
 

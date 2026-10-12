@@ -30,8 +30,6 @@ pub struct Spec {
     pub first_wave: u32,
     /// How many spawn together.
     pub group: usize,
-    /// Relative chance to be picked when it's allowed.
-    pub weight: f32,
     pub can_be_elite: bool,
     /// Hit impulse per damage point for a bullet at base speed.
     pub knockback: f32,
@@ -46,6 +44,7 @@ pub struct Spec {
 }
 
 impl Kind {
+    #[cfg(test)]
     pub const ALL: [Kind; 10] = [
         Kind::Chaser,
         Kind::Swarm,
@@ -68,7 +67,6 @@ impl Kind {
             cost: 1,
             first_wave: 1,
             group: 1,
-            weight: 1.0,
             can_be_elite: true,
             knockback: 8.0,
             spin: 0.0,
@@ -112,9 +110,6 @@ impl Kind {
                 hue: Hue::Green,
                 cost: 6,
                 first_wave: 4,
-                // At cost 6 tanks would otherwise eat about half of every
-                // budget, and their volleys would dominate the wave.
-                weight: 0.5,
                 knockback: 1.5,
                 spin: 0.8,
                 big_death: true,
@@ -128,7 +123,6 @@ impl Kind {
                 hue: Hue::Cyan,
                 cost: 4,
                 first_wave: 6,
-                weight: 0.8,
                 faces_player: true,
                 ..base
             },
@@ -139,7 +133,6 @@ impl Kind {
                 hue: Hue::Red,
                 cost: 5,
                 first_wave: 7,
-                weight: 0.7,
                 faces_player: true,
                 ..base
             },
@@ -150,7 +143,6 @@ impl Kind {
                 hue: Hue::Violet,
                 cost: 5,
                 first_wave: 8,
-                weight: 0.6,
                 spin: 1.4,
                 ..base
             },
@@ -161,7 +153,6 @@ impl Kind {
                 hue: Hue::Orange,
                 cost: 7,
                 first_wave: 9,
-                weight: 0.5,
                 knockback: 2.0,
                 spin: 0.5,
                 big_death: true,
@@ -174,7 +165,6 @@ impl Kind {
                 hue: Hue::Green,
                 cost: 5,
                 first_wave: 11,
-                weight: 0.7,
                 faces_player: true,
                 splits_into: Some((Kind::Swarm, 4)),
                 ..base
@@ -186,7 +176,6 @@ impl Kind {
                 hue: Hue::Yellow,
                 cost: 7,
                 first_wave: 12,
-                weight: 0.5,
                 knockback: 3.0,
                 spin: 0.35,
                 big_death: true,
@@ -958,24 +947,39 @@ mod tests {
     }
 
     #[test]
-    fn wave_roster_introduces_new_enemies_progressively_and_spawns_every_kind() {
+    fn wave_rosters_preserve_unlocks_and_eventually_spawn_every_kind() {
         let mut game = Game::new(29);
         game.state = State::Playing;
-        for wave in 1..=12 {
-            game.wave = wave;
-            game.budget = 3000;
-            game.spawns.clear();
-            while game.budget > 0 {
-                game.spawn_group();
+        for difficulty in Difficulty::ALL {
+            game.difficulty = difficulty;
+            let mut seen = Vec::new();
+            for wave in 1..=24 {
+                game.start_wave(wave);
+                game.spawns.clear();
+                let roster = game.wave_roster();
+                while game.budget > 0 {
+                    game.spawn_group();
+                }
+                for spawn in &game.spawns {
+                    assert!(roster.contains(&spawn.kind));
+                    assert!(spawn.kind.spec().first_wave <= game.effective_wave());
+                    if !seen.contains(&spawn.kind) {
+                        seen.push(spawn.kind);
+                    }
+                }
+                for kind in roster {
+                    let count = game
+                        .spawns
+                        .iter()
+                        .filter(|spawn| spawn.kind == *kind)
+                        .count();
+                    assert!(
+                        count >= kind.spec().group * 2,
+                        "{difficulty:?}, wave {wave}: {kind:?} must shape the encounter"
+                    );
+                }
             }
-            for kind in Kind::ALL {
-                let available = kind.spec().first_wave <= game.effective_wave();
-                assert_eq!(
-                    game.spawns.iter().any(|spawn| spawn.kind == kind),
-                    available,
-                    "{kind:?}, wave {wave}"
-                );
-            }
+            assert!(Kind::ALL.into_iter().all(|kind| seen.contains(&kind)));
         }
     }
 }
