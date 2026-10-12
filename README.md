@@ -74,6 +74,7 @@ within kitty's image budget.
 | WASD | move |
 | Shift + WASD | heat-powered thrust: stronger forward, weaker reverse |
 | mouse | aim |
+| mouse wheel down / up | next / previous weapon, wrapping through 1–9, 0 |
 | hold left click | fire |
 | 1 / 2 / 3 / 4 | default gun / sniper / rocket blaster / plasma gun |
 | 5 / 6 / 7 | gravity gun / ricochet gun / chain lightning |
@@ -83,6 +84,10 @@ within kitty's image budget.
 | hold right click / Space / R, then release | charge a star-laser spin |
 | Esc / P | pause |
 | Q | quit |
+
+The selected weapon's number and name appear in a highlighted row beneath the
+score. Use the wheel or number keys to switch while moving and firing. Switching
+cancels a pending weapon charge; heat and firing cooldown carry over.
 
 Enemies come in waves, and every attack starts with a visible wind-up:
 chasers lunge, swarms flank, shooters lead their shots, and tanks slam out a

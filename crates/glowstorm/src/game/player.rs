@@ -18,6 +18,19 @@ pub enum Weapon {
 }
 
 impl Weapon {
+    pub const ALL: [Self; 10] = [
+        Self::Default,
+        Self::Sniper,
+        Self::Rocket,
+        Self::Plasma,
+        Self::Gravity,
+        Self::Ricochet,
+        Self::Lightning,
+        Self::Blade,
+        Self::Mines,
+        Self::Flame,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Default => "1 GUN",

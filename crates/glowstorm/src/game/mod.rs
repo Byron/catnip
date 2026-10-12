@@ -363,26 +363,21 @@ impl Game {
                 }
             }
             State::Playing => {
-                if input.hit(&[KeyCode::Char('1')]) {
-                    self.player.weapon = Weapon::Default;
-                } else if input.hit(&[KeyCode::Char('2')]) {
-                    self.player.weapon = Weapon::Sniper;
-                } else if input.hit(&[KeyCode::Char('3')]) {
-                    self.player.weapon = Weapon::Rocket;
-                } else if input.hit(&[KeyCode::Char('4')]) {
-                    self.player.weapon = Weapon::Plasma;
-                } else if input.hit(&[KeyCode::Char('5')]) {
-                    self.player.weapon = Weapon::Gravity;
-                } else if input.hit(&[KeyCode::Char('6')]) {
-                    self.player.weapon = Weapon::Ricochet;
-                } else if input.hit(&[KeyCode::Char('7')]) {
-                    self.player.weapon = Weapon::Lightning;
-                } else if input.hit(&[KeyCode::Char('8')]) {
-                    self.player.weapon = Weapon::Blade;
-                } else if input.hit(&[KeyCode::Char('9')]) {
-                    self.player.weapon = Weapon::Mines;
-                } else if input.hit(&[KeyCode::Char('0')]) {
-                    self.player.weapon = Weapon::Flame;
+                let count = Weapon::ALL.len() as i32;
+                let index = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+                    .iter()
+                    .position(|&key| input.hit(&[KeyCode::Char(key)]))
+                    .unwrap_or_else(|| {
+                        (self.player.weapon as i32 + input.weapon_scroll.rem_euclid(count))
+                            .rem_euclid(count) as usize
+                    });
+                let weapon = Weapon::ALL[index];
+                if weapon != self.player.weapon {
+                    self.player.weapon = weapon;
+                    if self.player.charge > 0.0 && !self.player.charge_spin {
+                        self.player.charge = 0.0;
+                        self.player.charge_blocked = true;
+                    }
                 }
                 if input.hit(&[KeyCode::Esc, KeyCode::Char('p')]) {
                     self.pause();

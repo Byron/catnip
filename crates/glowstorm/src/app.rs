@@ -181,6 +181,12 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
                     input.dash = true;
                 }
                 MouseEventKind::Up(MouseButton::Right) => input.spin = false,
+                MouseEventKind::ScrollDown => {
+                    input.weapon_scroll = input.weapon_scroll.saturating_add(1);
+                }
+                MouseEventKind::ScrollUp => {
+                    input.weapon_scroll = input.weapon_scroll.saturating_sub(1);
+                }
                 _ => {}
             }
         }
@@ -191,6 +197,7 @@ fn handle(event: Event, input: &mut Input, game: &mut Game) -> Flow {
             input.middle_clicked = false;
             input.spin = false;
             input.boost = false;
+            input.weapon_scroll = 0;
             game.on_focus_lost();
         }
         _ => {}
@@ -487,5 +494,47 @@ mod tests {
         );
         handle(Event::FocusLost, &mut input, &mut game);
         assert!(!input.charge && !input.middle_clicked && input.held.is_empty());
+    }
+
+    #[test]
+    fn wheel_steps_accumulate_without_releasing_held_controls_and_clear_each_frame() {
+        let mut game = Game::new(7);
+        let mut input = Input {
+            held: [KeyCode::Char('w')].into_iter().collect(),
+            fire: true,
+            charge: true,
+            spin: true,
+            boost: true,
+            ..Input::default()
+        };
+        let mouse = |kind| {
+            Event::Mouse(MouseEvent {
+                kind,
+                column: 1199,
+                row: 749,
+                modifiers: KeyModifiers::SHIFT,
+            })
+        };
+        for kind in [
+            MouseEventKind::ScrollDown,
+            MouseEventKind::ScrollDown,
+            MouseEventKind::ScrollUp,
+            MouseEventKind::ScrollDown,
+            MouseEventKind::ScrollLeft,
+            MouseEventKind::ScrollRight,
+        ] {
+            handle(mouse(kind), &mut input, &mut game);
+        }
+        assert_eq!(input.weapon_scroll, 2);
+        assert_eq!(input.mouse, Some(v2(1200.0, 750.0)));
+        assert!(input.held.contains(&KeyCode::Char('w')));
+        assert!(input.fire && input.charge && input.spin && input.boost);
+        assert!(!input.clicked && !input.middle_clicked && !input.dash && !input.mouse_moved);
+        input.end_frame();
+        assert_eq!(input.weapon_scroll, 0);
+        assert!(input.fire && input.charge && input.spin && input.boost);
+        handle(mouse(MouseEventKind::ScrollUp), &mut input, &mut game);
+        handle(Event::FocusLost, &mut input, &mut game);
+        assert_eq!(input.weapon_scroll, 0);
     }
 }

@@ -32,7 +32,7 @@ impl Renderer {
         ) {
             let _ = write!(
                 text.out,
-                "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=1,c={},r=1,z={Z_SHADE},C=1,q=2\x1b\\",
+                "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=1,c={},r=2,z={Z_SHADE},C=1,q=2\x1b\\",
                 win.cols
             );
             text.hud(game, stats, self.sprites_drawn);
@@ -78,7 +78,7 @@ impl Renderer {
                 text.line(
                     r,
                     "38;2;200;210;255",
-                    "WASD move · Shift thrust · mouse aim · left fire · 1–0 select weapon",
+                    "WASD move · Shift thrust · mouse aim · left fire · wheel / 1–0 weapon",
                 );
                 text.line(
                     r + 1,
@@ -379,7 +379,6 @@ impl Text<'_> {
             let _ = write!(left, "  \x1b[38;2;255;61;240m×{}", game.multiplier());
         }
         let _ = write!(left, "  \x1b[38;2;61;242;255mWAVE {}", game.wave);
-        let _ = write!(left, "  \x1b[38;2;255;225;77m{}", p.weapon.name());
         if game.power() > 1.0 {
             let _ = write!(
                 left,
@@ -417,6 +416,26 @@ impl Text<'_> {
         let col = self.win.cols.saturating_sub(right.chars().count() as u32);
         let _ = write!(self.out, "\x1b[1;{col}H\x1b[38;2;90;100;140m{right}\x1b[0m");
         self.rows.push(1);
+
+        // A dedicated row keeps the selection clear even when HUD stats crowd row one.
+        let _ = write!(
+            self.out,
+            "\x1b[2;1H{:width$}",
+            "",
+            width = self.win.cols as usize
+        );
+        let available = self.win.cols.saturating_sub(2) as usize;
+        let mut selected = format!("WEAPON [{}]", p.weapon.name());
+        if selected.len() > available {
+            selected = format!("[{}]", p.weapon.name());
+        }
+        selected.truncate(available);
+        self.at(2, 2, "1;38;2;255;225;77", &selected);
+        let hint = "wheel / 1-0 to switch";
+        let hint_col = selected.len() as u32 + 4;
+        if hint_col + hint.len() as u32 <= self.win.cols {
+            self.at(2, hint_col, "38;2;140;150;190", hint);
+        }
     }
 }
 
@@ -450,11 +469,75 @@ pub(super) fn group(n: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::game::Weapon;
+
     #[test]
     fn group_inserts_thousands_separators() {
         assert_eq!(super::group(0), "0");
         assert_eq!(super::group(999), "999");
         assert_eq!(super::group(12345), "12,345");
         assert_eq!(super::group(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn weapon_row_stays_visible_and_clears_when_switching_or_leaving_play() {
+        let (atlas, sprites) = art::build_sprites(0.3);
+        let stats = Stats {
+            fps: 144.0,
+            frame_ms: 6.9,
+            kb_per_frame: 999.0,
+        };
+        let hint = "wheel / 1-0 to switch";
+        for (cols, long, short) in [
+            (120, "WEAPON [7 LIGHTNING]", "WEAPON [1 GUN]"),
+            (30, "WEAPON [7 LIGHTNING]", "WEAPON [1 GUN]"),
+            (16, "[7 LIGHTNING]", "WEAPON [1 GUN]"),
+            (8, "[7 LIG", "[1 GUN"),
+        ] {
+            let win = Window {
+                cols,
+                rows: 40,
+                width: cols * 8,
+                height: 640,
+            };
+            let blank_row = format!("\x1b[2;1H{}", " ".repeat(cols as usize));
+            let selected_at = "\x1b[2;2H\x1b[1;38;2;255;225;77m";
+            let mut renderer = Renderer::new((100, 100), atlas.len());
+            let mut game = Game::new(42);
+            game.state = State::Playing;
+            game.score = u64::MAX;
+            game.wave = u32::MAX;
+            game.player.rapid_t = 10.0;
+            let mut out = Vec::new();
+            for (weapon, expected) in [(Weapon::Lightning, long), (Weapon::Default, short)] {
+                game.player.weapon = weapon;
+                out.clear();
+                renderer.frame(&mut out, &game, &sprites, 0.3, win, &stats);
+                let frame = std::str::from_utf8(&out).unwrap();
+                let selected = frame
+                    .split_once(selected_at)
+                    .expect("selection has its own row and highlight")
+                    .1
+                    .split_once("\x1b[0m")
+                    .unwrap()
+                    .0;
+                assert_eq!(selected, expected, "{cols} columns");
+                assert!(selected.len() + 1 < cols as usize, "selection wraps");
+                assert_eq!(frame.contains(hint), cols == 120, "{cols} columns");
+                assert!(frame.contains(&format!("{blank_row}{selected_at}")));
+                assert!(frame.rfind(&blank_row).unwrap() > frame.find("KB/frame").unwrap());
+                assert!(frame.contains(&format!("p=1,c={cols},r=2,z={Z_SHADE}")));
+            }
+            game.state = State::Title;
+            out.clear();
+            renderer.frame(&mut out, &game, &sprites, 0.3, win, &stats);
+            let frame = std::str::from_utf8(&out).unwrap();
+            assert!(
+                frame.contains(&blank_row),
+                "old selection survives the menu"
+            );
+            assert!(!frame.contains(selected_at));
+        }
     }
 }
