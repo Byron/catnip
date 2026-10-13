@@ -66,8 +66,8 @@ environment variable; command-line flags take precedence:
 Boolean environment values accept `1`/`0`, `true`/`false`, `yes`/`no`, or `on`/`off`.
 Invalid values produce a usage error. The requested FPS is a target; terminal
 rendering speed may limit the achieved rate.
-The render scale is capped at 1.8 to keep the expanded sprite atlas and base arena
-within kitty's image budget.
+The render scale is capped at 1.8 and reduced further when needed to keep the
+sprite atlas and resized arena within the terminal's 320 MB image budget.
 
 | Control | Action |
 |---|---|

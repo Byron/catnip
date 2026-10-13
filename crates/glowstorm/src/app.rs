@@ -27,10 +27,10 @@ pub enum Exit {
 
 pub fn run(
     mut win: term::Window,
-    scale: f32,
+    mut scale: f32,
     atlas: Vec<Image>,
     floor: Image,
-    sprites: &Sprites,
+    mut sprites: Sprites,
     audio: Option<&Audio>,
     options: &crate::Options,
 ) -> io::Result<Exit> {
@@ -43,7 +43,9 @@ pub fn run(
     if !term::keyboard_protocol_active(Duration::from_millis(800)) {
         return Ok(Exit::NeedsKeyboardProtocol);
     }
-    let mut renderer = Renderer::new((floor.w, floor.h), atlas.len());
+    let mut atlas_bytes = atlas.iter().map(|page| page.rgba.len()).sum();
+    let mut atlas_pages = atlas.len();
+    let mut renderer = Renderer::new((floor.w, floor.h), atlas_pages);
     drop((atlas, floor));
 
     let seed = std::time::SystemTime::now()
@@ -78,7 +80,28 @@ pub fn run(
         last = now;
         let started = Instant::now();
 
-        let view = View::new(win, scale);
+        let mut view = View::new(win, scale);
+        let size = view.arena_size() * scale;
+        if !art::floor_fits((size.x as u32, size.y as u32), atlas_bytes) {
+            let (new_scale, atlas, new_sprites) = art::build_fitting_sprites(win, scale)?;
+            let mut bytes = Vec::new();
+            kitty::delete_image(&mut bytes, FLOOR_ID);
+            for i in 0..atlas_pages {
+                kitty::delete_image(&mut bytes, ATLAS_ID + i as u32);
+            }
+            for (i, page) in atlas.iter().enumerate() {
+                kitty::upload(&mut bytes, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
+            }
+            out.write_all(&bytes)?;
+            kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
+            atlas_bytes = atlas.iter().map(|page| page.rgba.len()).sum();
+            atlas_pages = atlas.len();
+            renderer.replace_atlas(atlas_pages);
+            renderer.floor_size = (0, 0);
+            scale = new_scale;
+            sprites = new_sprites;
+            view = View::new(win, scale);
+        }
         game.update(dt, &input, &view);
         let size = game.arena_size * scale;
         if renderer.floor_size != (size.x as u32, size.y as u32) {
@@ -93,7 +116,7 @@ pub fn run(
         play_sounds(&mut game, audio);
 
         frame.clear();
-        renderer.frame(&mut frame, &game, sprites, scale, win, meter.stats());
+        renderer.frame(&mut frame, &game, &sprites, scale, win, meter.stats());
         out.write_all(&frame)?;
         out.flush()?;
         meter.record(started.elapsed(), frame.len());

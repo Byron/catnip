@@ -35,7 +35,13 @@ fn main() {
     println!("building sprites…");
     let started = Instant::now();
     let scale = art::scale_for(win, options.scale);
-    let (atlas, sprites) = art::build_sprites(scale);
+    let (scale, atlas, sprites) = match art::build_fitting_sprites(win, scale) {
+        Ok(images) => images,
+        Err(e) => {
+            eprintln!("cannot build sprites: {e}");
+            std::process::exit(1);
+        }
+    };
     let arena = game::View::new(win, scale).arena_size();
     let floor = art::build_floor(scale, arena.x, arena.y);
     let build_time = started.elapsed();
@@ -82,7 +88,7 @@ fn main() {
     );
 
     let result = term::enter()
-        .and_then(|()| app::run(win, scale, atlas, floor, &sprites, audio.as_ref(), &options));
+        .and_then(|()| app::run(win, scale, atlas, floor, sprites, audio.as_ref(), &options));
     term::restore();
     kitty::cleanup_shm();
     match result {

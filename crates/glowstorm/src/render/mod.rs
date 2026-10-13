@@ -90,6 +90,10 @@ impl Renderer {
         }
     }
 
+    pub fn replace_atlas(&mut self, pages: usize) {
+        self.atlas = AtlasPlacer::new(ATLAS_ID, pages);
+    }
+
     pub fn frame(
         &mut self,
         out: &mut Vec<u8>,
