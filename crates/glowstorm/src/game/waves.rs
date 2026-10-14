@@ -24,7 +24,7 @@ const INTRO_ROSTERS: [&[Kind]; 9] = [
     &[Kind::Splitter, Kind::Swarm, Kind::Skirmisher],
 ];
 
-const LATE_ROSTERS: [&[Kind]; 6] = [
+pub(super) const LATE_ROSTERS: [&[Kind]; 6] = [
     &[Kind::Sentinel, Kind::Sniper],
     &[Kind::Bomber, Kind::Spinner, Kind::Skirmisher],
     &[Kind::Splitter, Kind::Swarm, Kind::Shooter],
@@ -149,7 +149,7 @@ impl Game {
             .max(1);
         let before = (first - 1) - (first - 1) / 5;
         let index = self.wave - self.wave / 5 - before - 1;
-        LATE_ROSTERS[index as usize % LATE_ROSTERS.len()]
+        self.late_rosters[index as usize % self.late_rosters.len()]
     }
 
     pub(super) fn spawn_group(&mut self) {
@@ -227,6 +227,83 @@ mod tests {
     }
 
     #[test]
+    fn seed_shuffles_all_late_themes_reproducibly() {
+        assert_ne!(Game::new(1).late_rosters, Game::new(2).late_rosters);
+        assert_ne!(Game::new(2).rng.0, Game::new(3).rng.0);
+        for seed in [1, 2, 3, 7, u64::MAX] {
+            let mut game = Game::new(seed);
+            let mut other = Game::new(seed);
+            for roster in LATE_ROSTERS {
+                assert_eq!(
+                    game.late_rosters.iter().filter(|r| **r == roster).count(),
+                    1
+                );
+            }
+            // Cosmetic and gameplay draws cannot change the selected wave order.
+            for _ in 0..100 {
+                other.rng.next();
+            }
+            for difficulty in Difficulty::ALL {
+                game.difficulty = difficulty;
+                other.difficulty = difficulty;
+                for wave in 1..=30 {
+                    game.start_wave(wave);
+                    other.start_wave(wave);
+                    assert_eq!(game.wave_roster(), other.wave_roster());
+                    assert!(
+                        game.wave_roster()
+                            .iter()
+                            .all(|kind| kind.spec().first_wave <= game.effective_wave())
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn title_activity_and_retries_reuse_the_seed_and_spawn_sequence() {
+        let view = View {
+            scale: 1.0,
+            size: v2(1600.0, 900.0),
+        };
+        let mut game = Game::new(42);
+        let snapshot = |game: &Game| {
+            game.spawns
+                .iter()
+                .map(|s| (s.kind, s.pos, s.elite))
+                .collect::<Vec<_>>()
+        };
+        game.dev.first_wave = 12;
+        game.update(1.0, &Input::default(), &view);
+        game.start();
+        let roster = game.wave_roster();
+        game.spawn_group();
+        let spawns = snapshot(&game);
+        for _ in 0..2 {
+            game.update(0.1, &Input::default(), &view);
+            game.state = State::GameOver;
+            game.update(
+                0.0,
+                &Input {
+                    pressed: vec![KeyCode::Esc],
+                    ..Input::default()
+                },
+                &view,
+            );
+            assert_eq!(game.state, State::Title);
+            assert_eq!(game.seed, 42);
+            game.update(1.0, &Input::default(), &view);
+            game.start();
+            assert_eq!(game.wave_roster(), roster);
+            game.spawn_group();
+            assert_eq!(snapshot(&game), spawns);
+            game.start();
+            game.spawn_group();
+            assert_eq!(snapshot(&game), spawns);
+        }
+    }
+
+    #[test]
     fn late_themes_rotate_through_ordinary_waves_on_every_difficulty() {
         let mut game = Game::new(7);
         for difficulty in Difficulty::ALL {
@@ -239,7 +316,10 @@ mod tests {
                     assert_eq!(game.budget, 0);
                     assert!(game.boss_pending > 0.0);
                 } else if game.effective_wave() >= Kind::Sentinel.spec().first_wave {
-                    assert_eq!(game.wave_roster(), LATE_ROSTERS[index % LATE_ROSTERS.len()]);
+                    assert_eq!(
+                        game.wave_roster(),
+                        game.late_rosters[index % LATE_ROSTERS.len()]
+                    );
                     index += 1;
                 }
             }
@@ -269,6 +349,7 @@ mod tests {
     fn leftover_budget_only_buys_affordable_roster_members_or_ends_spawning() {
         let mut game = Game::new(7);
         game.state = State::Playing;
+        game.late_rosters = LATE_ROSTERS;
         game.start_wave(13);
         assert_eq!(game.wave_roster(), LATE_ROSTERS[1]);
         game.budget = Kind::Skirmisher.spec().cost;

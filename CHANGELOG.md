@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- `--seed` / `GLOWSTORM_SEED` selects gameplay randomness and shuffles later
+  enemy combinations. The default is 1, and retries reuse the selected seed.
 - Title screen tells Ghostty players to dash with Space: Ghostty loses the
   left-button release when right-click is pressed during fire.
 

@@ -48,10 +48,8 @@ pub fn run(
     let mut renderer = Renderer::new((floor.w, floor.h), atlas_pages);
     drop((atlas, floor));
 
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(1, |d| d.as_nanos() as u64);
-    let mut game = Game::new(seed);
+    eprintln!("seed: {}", options.seed);
+    let mut game = Game::new(options.seed);
     game.dev = options.dev;
     let mut input = Input::default();
     let mut meter = Meter::new();

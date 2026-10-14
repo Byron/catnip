@@ -42,6 +42,12 @@ synthesis, audio initialization, and playback when comparing frame rates.
 `glowstorm -h` or `glowstorm --help` shows the available options.
 
 The frame rate defaults to **60 FPS**; use `--fps 144` to change the target.
+
+Use `glowstorm --seed 42` to change the order of later enemy combinations and
+gameplay randomness. The default seed is **1**, and retries reuse the selected
+seed. Wave order depends only on the seed and difficulty, so waiting on the
+title screen or starting at a specific wave does not change it.
+
 Start with spread shot and permanent rapid fire (the lightning-bolt pickup) with:
 
 ```sh
@@ -55,6 +61,7 @@ environment variable; command-line flags take precedence:
 |---|---|---|
 | `--no-sound` | `GLOWSTORM_NO_SOUND` | off |
 | `--fps <FPS>` | `GLOWSTORM_FPS` | 60 (valid range: 1–65535) |
+| `--seed <SEED>` | `GLOWSTORM_SEED` | 1 (positive 64-bit integer) |
 | `--scale <SCALE>` | `GLOWSTORM_SCALE` | automatic (override: 0.3–1.8) |
 | `--wave <WAVE>` | `GLOWSTORM_WAVE` | 1 |
 | `--god` | `GLOWSTORM_GOD` | off |
@@ -105,7 +112,7 @@ shockwave when you get close. Six more enemies join the roster as the run advanc
 Each ordinary wave uses at most three enemy types, including enemies created on
 death. Opening waves introduce new types in focused combinations; groups take
 turns spawning so the whole combination appears. From wave 12 on Medium, these
-six combinations repeat, skipping boss waves:
+six combinations repeat in an order shuffled by the seed, skipping boss waves:
 
 | Enemies | Play style |
 |---|---|

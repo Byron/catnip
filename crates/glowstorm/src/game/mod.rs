@@ -89,6 +89,7 @@ pub struct Game {
     budget: i32,
     spawn_cd: f32,
     wave_spawn_index: usize,
+    late_rosters: [&'static [Kind]; waves::LATE_ROSTERS.len()],
     pub banner: f32,
     pub wave_clear: f32,
     pub score: u64,
@@ -98,6 +99,7 @@ pub struct Game {
     pub chain_t: f32,
     pub time: f32,
     state_t: f32,
+    seed: u64,
     rng: Rng,
     pub sfx: Vec<Sfx>,
     best_path: Option<PathBuf>,
@@ -195,6 +197,7 @@ impl Game {
             budget: 0,
             spawn_cd: 0.0,
             wave_spawn_index: 0,
+            late_rosters: waves::LATE_ROSTERS,
             banner: 0.0,
             wave_clear: 0.0,
             score: 0,
@@ -204,7 +207,8 @@ impl Game {
             chain_t: 0.0,
             time: 0.0,
             state_t: 0.0,
-            rng: Rng(seed | 1),
+            seed,
+            rng: Rng(seed.max(1)),
             sfx: Vec::new(),
             best_path,
             dev: DevFlags::default(),
@@ -223,6 +227,10 @@ impl Game {
             next_id: 1,
             snap_camera: false,
         };
+        for i in (1..game.late_rosters.len()).rev() {
+            let j = (game.rng.next() % (i + 1) as u64) as usize;
+            game.late_rosters.swap(i, j);
+        }
         for i in 0..MOTES {
             let pos = v2(game.rng.range(0.0, WORLD_W), game.rng.range(0.0, WORLD_H));
             let drift = game.rng.dir() * game.rng.range(6.0, 22.0);
@@ -272,8 +280,7 @@ impl Game {
         let difficulty = self.difficulty;
         let arena_size = self.arena_size;
         let dev = self.dev;
-        let seed = self.rng.next();
-        *self = Game::new(seed);
+        *self = Game::new(self.seed);
         self.dev = dev;
         self.resize_arena(arena_size);
         self.set_difficulty(difficulty);
@@ -437,8 +444,7 @@ impl Game {
                     let difficulty = self.difficulty;
                     let arena_size = self.arena_size;
                     let dev = self.dev;
-                    let seed = self.rng.next();
-                    *self = Game::new(seed);
+                    *self = Game::new(self.seed);
                     self.dev = dev;
                     self.resize_arena(arena_size);
                     self.set_difficulty(difficulty);

@@ -843,6 +843,8 @@ fn rockets_detonate_at_first_contact_or_expiry_and_damage_each_ship_once() {
             },
             &view,
         );
+        // Keep collision geometry independent of random firing spread.
+        game.bullets[0].pos = v2(322.0, 500.0);
         game.bullets[0].vel = v2(ROCKET_SPEED, 0.0);
         game.add_enemy(Kind::Tank, v2(500.0, 500.0), V2::default(), true);
         game.enemies[0].hp = 100.0;

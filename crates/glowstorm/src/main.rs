@@ -116,6 +116,9 @@ struct Options {
     /// Target frames per second
     #[arg(long, env = "GLOWSTORM_FPS", default_value_t = 60, value_parser = clap::value_parser!(u16).range(1..))]
     fps: u16,
+    /// Seed for wave order and gameplay randomness
+    #[arg(long, env = "GLOWSTORM_SEED", default_value_t = 1, value_parser = clap::value_parser!(u64).range(1..))]
+    seed: u64,
     #[command(flatten)]
     dev: game::DevFlags,
     #[arg(long, env = "GLOWSTORM_RELAUNCHED", hide = true, value_parser = clap::builder::BoolishValueParser::new())]
@@ -185,6 +188,7 @@ mod tests {
         let defaults = Options::try_parse_from(["glowstorm"]).unwrap();
         assert!(!defaults.no_sound);
         assert_eq!(defaults.fps, 60);
+        assert_eq!(defaults.seed, 1);
         assert_eq!(defaults.scale, None);
         assert_eq!(defaults.dev.first_wave, 1);
         assert!(!defaults.dev.god && !defaults.dev.cards && !defaults.dev.perfect_cooling);
@@ -211,11 +215,14 @@ mod tests {
             "0.8",
             "--fps",
             "144",
+            "--seed",
+            "42",
             "--relaunched",
         ])
         .unwrap();
         assert!(options.no_sound && options.relaunched);
         assert_eq!(options.fps, 144);
+        assert_eq!(options.seed, 42);
         assert_eq!(options.scale, Some(0.8));
         assert_eq!(options.dev.first_wave, 6);
         assert!(options.dev.god && options.dev.cards && options.dev.perfect_cooling);
@@ -231,6 +238,10 @@ mod tests {
             vec!["--fps", "-1"],
             vec!["--fps", "NaN"],
             vec!["--wave", "0"],
+            vec!["--seed", "0"],
+            vec!["--seed", "-1"],
+            vec!["--seed", "NaN"],
+            vec!["--seed", "18446744073709551616"],
             vec!["--scale", "NaN"],
             vec!["--scale", "inf"],
             vec!["--scale", "0.2"],
@@ -254,6 +265,7 @@ mod tests {
                     ("GLOWSTORM_NO_SOUND", "1"),
                     ("GLOWSTORM_SCALE", "0.8"),
                     ("GLOWSTORM_FPS", "30"),
+                    ("GLOWSTORM_SEED", "42"),
                     ("GLOWSTORM_WAVE", "6"),
                     ("GLOWSTORM_GOD", "yes"),
                     ("GLOWSTORM_CARDS", "0"),
@@ -276,6 +288,7 @@ mod tests {
         assert!(options.no_sound && options.relaunched);
         assert_eq!(options.scale, Some(0.8));
         assert_eq!(options.fps, 30);
+        assert_eq!(options.seed, 42);
         assert_eq!(options.dev.first_wave, 6);
         assert!(options.dev.god && options.dev.perfect_cooling && options.dev.spread_shot);
         assert!(!options.dev.cards && !options.dev.rapid_fire);
@@ -285,6 +298,8 @@ mod tests {
             "1.2",
             "--fps",
             "144",
+            "--seed",
+            "18446744073709551615",
             "--wave",
             "2",
             "--cards",
@@ -293,6 +308,7 @@ mod tests {
         .unwrap();
         assert_eq!(options.scale, Some(1.2));
         assert_eq!(options.fps, 144);
+        assert_eq!(options.seed, u64::MAX);
         assert_eq!(options.dev.first_wave, 2);
         assert!(options.dev.cards && options.dev.rapid_fire);
     }
