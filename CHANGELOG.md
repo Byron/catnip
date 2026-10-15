@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Seeded ordinary waves add synchronized reinforcements, volatile wrecks, and
+  sweeping crossfire, each announced before enemies begin spawning.
 - Each boss offers a unique optional trophy card that adds an automatic power
   for the rest of the run.
 - `--seed` / `GLOWSTORM_SEED` selects gameplay randomness and shuffles later

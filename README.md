@@ -123,6 +123,20 @@ six combinations repeat in an order shuffled by the seed, skipping boss waves:
 | Sentinel + Skirmisher + Swarm | Keep moving through crossfire and encircling enemies. |
 | Chaser + Shooter + Spinner | Alternate between evading lunges and threading bullet gaps. |
 
+From wave 6, ordinary waves cycle through three modifiers and one unmodified
+wave in a seed-shuffled order. Boss waves skip the cycle. A banner describes
+each modifier before spawning begins; its name stays in the HUD:
+
+| Modifier | What changes |
+|---|---|
+| REINFORCEMENTS | Three enemy groups arrive together, with a longer gap between batches and the same total budget. |
+| VOLATILE WRECKS | Defeated enemies leave a red warning ring, then a damaging shockwave after 0.9 seconds. Dash through it; the wave waits for wrecks to expire. |
+| CROSSFIRE | Edge emitters and the HUD warn for one second, then fire every four seconds, alternating top and right edges. A three-slot gap moves between volleys; your shots can clear the bullets. |
+
+Changing the seed changes the modifier schedule. Retries and `--wave` use the
+same schedule, regardless of time spent on the title screen. At most eight
+volatile wrecks arm at once to keep dense waves readable.
+
 Every fifth wave brings a boss. All five have three health phases, visible
 attack warnings, and recovery windows; later phases add denser bullet patterns.
 

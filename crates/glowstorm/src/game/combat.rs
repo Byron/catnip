@@ -798,6 +798,17 @@ impl Game {
     }
 
     pub(super) fn kill(&mut self, e: Enemy, split: bool) {
+        if split
+            && self.state == State::Playing
+            && self.wave_modifier == WaveModifier::Volatile
+            && self.shockwaves.len() < 8
+        {
+            self.shockwaves.push(Shockwave {
+                pos: e.pos,
+                r: -SHOCK_SPEED * 0.9,
+                hit: false,
+            });
+        }
         let before = self.multiplier();
         self.chain += 1;
         self.chain_t = 2.2;

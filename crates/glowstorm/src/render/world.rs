@@ -9,6 +9,24 @@ pub(super) fn draw_world(draw: &mut Draw, game: &Game, sprites: &Sprites) {
         draw.sprite(sprites.mote[m.hue], m.pos, Z_MOTES);
     }
 
+    if game.wave_modifier == crate::game::WaveModifier::Crossfire
+        && game.banner <= 0.0
+        && game.wave_clear <= 0.0
+        && game.modifier_time % 4.0 < 1.0
+    {
+        for pos in game.crossfire_sources() {
+            draw.sprite(sprites.spark[Hue::Red.index()][2], pos, Z_ORBS);
+        }
+    }
+    if game.wave_modifier == crate::game::WaveModifier::Volatile {
+        for w in game.shockwaves.iter().filter(|w| w.r < 0.0) {
+            for i in 0..24 {
+                let at = w.pos + V2::from_angle(i as f32 * TAU / 24.0) * 55.0;
+                draw.sprite(sprites.spark[Hue::Red.index()][1], at, Z_RINGS);
+            }
+        }
+    }
+
     for ring in &game.rings {
         if ring.t < 0.0 {
             continue;

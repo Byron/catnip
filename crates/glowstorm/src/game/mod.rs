@@ -91,6 +91,9 @@ pub struct Game {
     spawn_cd: f32,
     wave_spawn_index: usize,
     late_rosters: [&'static [Kind]; waves::LATE_ROSTERS.len()],
+    modifiers: [WaveModifier; WaveModifier::ALL.len()],
+    pub wave_modifier: WaveModifier,
+    pub modifier_time: f32,
     pub banner: f32,
     pub wave_clear: f32,
     pub score: u64,
@@ -202,6 +205,9 @@ impl Game {
             spawn_cd: 0.0,
             wave_spawn_index: 0,
             late_rosters: waves::LATE_ROSTERS,
+            modifiers: WaveModifier::ALL,
+            wave_modifier: WaveModifier::Calm,
+            modifier_time: 0.0,
             banner: 0.0,
             wave_clear: 0.0,
             score: 0,
@@ -237,6 +243,11 @@ impl Game {
         for i in (1..game.late_rosters.len()).rev() {
             let j = (game.rng.next() % (i + 1) as u64) as usize;
             game.late_rosters.swap(i, j);
+        }
+        let mut modifier_rng = Rng(seed.max(1));
+        for i in (1..game.modifiers.len()).rev() {
+            let j = (modifier_rng.next() % (i + 1) as u64) as usize;
+            game.modifiers.swap(i, j);
         }
         for i in 0..MOTES {
             let pos = v2(game.rng.range(0.0, WORLD_W), game.rng.range(0.0, WORLD_H));
@@ -487,6 +498,7 @@ impl Game {
 
     fn update_world(&mut self, dt: f32) {
         self.update_waves(dt);
+        self.update_modifier(dt);
         self.update_enemies(dt);
         self.update_boss(dt);
         if self.state == State::Playing {

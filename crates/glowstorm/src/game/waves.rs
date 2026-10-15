@@ -2,6 +2,41 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaveModifier {
+    Calm,
+    Reinforcements,
+    Volatile,
+    Crossfire,
+}
+
+impl WaveModifier {
+    pub(super) const ALL: [Self; 4] = [
+        Self::Calm,
+        Self::Reinforcements,
+        Self::Volatile,
+        Self::Crossfire,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Calm => "",
+            Self::Reinforcements => "REINFORCEMENTS",
+            Self::Volatile => "VOLATILE WRECKS",
+            Self::Crossfire => "CROSSFIRE",
+        }
+    }
+
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Self::Calm => "",
+            Self::Reinforcements => "Three groups arrive together. Watch the spawn rings.",
+            Self::Volatile => "Wrecks explode after a warning. Dash through the shockwave.",
+            Self::Crossfire => "Edge volleys alternate sides. Follow the gap or shoot through.",
+        }
+    }
+}
+
 pub struct Spawn {
     pub(super) kind: Kind,
     pub(super) pos: V2,
@@ -35,7 +70,17 @@ pub(super) const LATE_ROSTERS: [&[Kind]; 6] = [
 
 impl Game {
     pub(super) fn start_wave(&mut self, wave: u32) {
+        if self.wave_modifier == WaveModifier::Volatile {
+            self.shockwaves.clear();
+        }
         self.wave = wave;
+        self.modifier_time = 0.0;
+        self.wave_modifier = if wave <= 5 || wave.is_multiple_of(5) {
+            WaveModifier::Calm
+        } else {
+            let index = wave - wave / 5 - 5;
+            self.modifiers[index as usize % self.modifiers.len()]
+        };
         self.spawn_cd = 0.0;
         self.wave_spawn_index = 0;
         self.enrage_announced = false;
@@ -55,10 +100,10 @@ impl Game {
     }
 
     pub(super) fn update_waves(&mut self, dt: f32) {
-        self.banner -= dt;
         if self.state != State::Playing {
             return;
         }
+        self.banner -= dt;
         if self.boss_pending > 0.0 {
             self.boss_pending -= dt;
             if self.boss_pending <= 0.0 {
@@ -68,7 +113,11 @@ impl Game {
         if self.wave_clear > 0.0 {
             self.wave_clear -= dt;
             if self.wave_clear <= 0.0 {
-                let offer = self.roll_offer();
+                let offer = if self.wave.is_multiple_of(5) {
+                    self.roll_offer()
+                } else {
+                    Vec::new()
+                };
                 if self.wave.is_multiple_of(5) && !offer.is_empty() {
                     self.offer = offer;
                     self.offer_pick = 0;
@@ -81,14 +130,30 @@ impl Game {
             }
         } else if self.budget > 0 {
             self.spawn_cd -= dt;
-            if self.spawn_cd <= 0.0 && self.banner < 1.3 {
-                self.spawn_cd = (0.95 - 0.05 * self.wave as f32).max(0.25);
-                self.spawn_group();
+            let introduced = if self.wave_modifier == WaveModifier::Calm {
+                self.banner < 1.3
+            } else {
+                self.banner <= 0.0
+            };
+            if self.spawn_cd <= 0.0 && introduced {
+                let cadence = (0.95 - 0.05 * self.wave as f32).max(0.25);
+                let count = if self.wave_modifier == WaveModifier::Reinforcements {
+                    3
+                } else {
+                    1
+                };
+                self.spawn_cd = cadence * count as f32;
+                for _ in 0..count {
+                    if self.budget > 0 {
+                        self.spawn_group();
+                    }
+                }
             }
         } else if self.spawns.is_empty()
             && self.enemies.is_empty()
             && self.boss.is_none()
             && self.boss_pending <= 0.0
+            && (self.wave_modifier != WaveModifier::Volatile || self.shockwaves.is_empty())
         {
             self.wave_clear = 1.8;
             // The wave bonus scales with difficulty but not with the combo.
@@ -122,6 +187,54 @@ impl Game {
                 self.emit(pos, v, 0.35, kind.hue(), 1);
             }
         }
+    }
+
+    pub(super) fn update_modifier(&mut self, dt: f32) {
+        if self.state != State::Playing
+            || self.banner > 0.0
+            || self.wave_clear > 0.0
+            || self.wave_modifier != WaveModifier::Crossfire
+            || (self.budget <= 0 && self.spawns.is_empty() && self.enemies.is_empty())
+        {
+            return;
+        }
+        let before = self.modifier_time;
+        self.modifier_time += dt;
+        let cycle = (self.modifier_time / 4.0) as u32;
+        if before < cycle as f32 * 4.0 + 1.0 && self.modifier_time >= cycle as f32 * 4.0 + 1.0 {
+            let horizontal = cycle.is_multiple_of(2);
+            let vel = if horizontal {
+                v2(0.0, VOLLEY_SPEED)
+            } else {
+                v2(-VOLLEY_SPEED, 0.0)
+            };
+            for pos in self.crossfire_sources() {
+                self.add_orb(pos, vel);
+            }
+            self.sfx.push(Sfx::EnemyShoot);
+        }
+    }
+
+    pub fn crossfire_sources(&self) -> Vec<V2> {
+        let cycle = (self.modifier_time / 4.0) as u32;
+        let horizontal = cycle.is_multiple_of(2);
+        let length = if horizontal {
+            self.arena_size.x
+        } else {
+            self.arena_size.y
+        };
+        let gap = 3 + (cycle as usize * 3) % 10;
+        (0usize..16)
+            .filter(|&i| i.abs_diff(gap) > 1)
+            .map(|i| {
+                let at = WALL + 30.0 + (length - 2.0 * (WALL + 30.0)) * (i as f32 + 0.5) / 16.0;
+                if horizontal {
+                    v2(at, WALL + 30.0)
+                } else {
+                    v2(self.arena_size.x - WALL - 30.0, at)
+                }
+            })
+            .collect()
     }
 
     /// Hard and Extreme start where Medium would be a wave or two in, so
@@ -213,6 +326,165 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modifiers_are_seeded_repeatable_and_skip_opening_and_boss_waves() {
+        assert_ne!(Game::new(1).modifiers, Game::new(2).modifiers);
+        for seed in [1, 2, 42, u64::MAX] {
+            let mut game = Game::new(seed);
+            let mut other = Game::new(seed);
+            for _ in 0..100 {
+                other.rng.next();
+            }
+            for difficulty in Difficulty::ALL {
+                game.difficulty = difficulty;
+                other.difficulty = difficulty;
+                let mut schedule = Vec::new();
+                for wave in 1..=20 {
+                    game.start_wave(wave);
+                    other.start_wave(wave);
+                    assert_eq!(game.wave_modifier, other.wave_modifier);
+                    if wave <= 5 || wave.is_multiple_of(5) {
+                        assert_eq!(game.wave_modifier, WaveModifier::Calm);
+                    } else {
+                        schedule.push(game.wave_modifier);
+                    }
+                }
+                for cycle in schedule.as_chunks::<4>().0 {
+                    for modifier in WaveModifier::ALL {
+                        assert!(cycle.contains(&modifier));
+                    }
+                }
+            }
+            game.start();
+            assert_eq!(game.modifiers, other.modifiers);
+        }
+    }
+
+    #[test]
+    fn reinforcements_wait_for_warning_then_spawn_three_budgeted_groups() {
+        let mut game = Game::new(42);
+        game.state = State::Playing;
+        game.start_wave(12);
+        game.wave_modifier = WaveModifier::Reinforcements;
+        let budget = game.budget;
+        game.update_waves(0.8);
+        assert!(game.spawns.is_empty() && game.enemies.is_empty());
+        assert_eq!(game.budget, budget);
+        game.update_waves(1.3);
+        let roster = game.wave_roster();
+        let expected_cost: i32 = (0..3).map(|i| roster[i % roster.len()].spec().cost).sum();
+        let expected_count: usize = (0..3).map(|i| roster[i % roster.len()].spec().group).sum();
+        assert_eq!(game.budget, budget - expected_cost);
+        assert_eq!(game.enemies.len() + game.spawns.len(), expected_count);
+        assert!(game.enemies.iter().all(|e| roster.contains(&e.kind)));
+        let remaining = game.budget;
+        game.update_waves(0.01);
+        assert_eq!(game.budget, remaining);
+    }
+
+    #[test]
+    fn volatile_wrecks_warn_hurt_once_and_cannot_stall_the_wave() {
+        let mut game = Game::new(42);
+        game.state = State::Playing;
+        game.start_wave(12);
+        game.wave_modifier = WaveModifier::Volatile;
+        game.banner = 0.0;
+        game.budget = 0;
+        let at = game.arena_size * 0.5;
+        game.player.pos = at + v2(50.0, 0.0);
+        game.add_enemy(Kind::Chaser, at, V2::default(), false);
+        let enemy = game.enemies.pop().unwrap();
+        game.kill(enemy, true);
+        assert_eq!(game.shockwaves.len(), 1);
+        assert!(game.shockwaves[0].r < 0.0);
+        let hp = game.player.hp;
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp);
+        game.update_waves(0.0);
+        assert_eq!(game.wave_clear, 0.0);
+        game.shockwaves[0].r = 50.0;
+        game.player.dash_t = 0.1;
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp);
+        assert!(!game.shockwaves[0].hit);
+        game.player.dash_t = 0.0;
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp - 1);
+        game.player.invuln = 0.0;
+        game.player_collisions();
+        assert_eq!(game.player.hp, hp - 1);
+        for _ in 0..120 {
+            game.update_world(1.0 / 60.0);
+        }
+        assert!(game.shockwaves.is_empty());
+        assert!(game.wave_clear > 0.0 || game.wave > 12);
+        game.start_wave(13);
+        game.wave_modifier = WaveModifier::Volatile;
+        for _ in 0..20 {
+            game.add_enemy(Kind::Chaser, at, V2::default(), false);
+            let enemy = game.enemies.pop().unwrap();
+            game.kill(enemy, true);
+        }
+        assert_eq!(game.shockwaves.len(), 8);
+        game.start_wave(15);
+        assert!(game.shockwaves.is_empty());
+        assert_eq!(game.wave_modifier, WaveModifier::Calm);
+        game.add_enemy(Kind::Chaser, at, V2::default(), false);
+        let enemy = game.enemies.pop().unwrap();
+        game.kill(enemy, false);
+        assert!(game.shockwaves.is_empty());
+    }
+
+    #[test]
+    fn crossfire_warns_alternates_sides_and_respects_pause_and_bullet_limits() {
+        for fps in [30, 60, 144] {
+            let mut game = Game::new(42);
+            game.state = State::Playing;
+            game.start_wave(12);
+            game.wave_modifier = WaveModifier::Crossfire;
+            game.update_modifier(2.0);
+            assert_eq!(game.modifier_time, 0.0);
+            game.banner = 0.0;
+            let sources = game.crossfire_sources();
+            assert_eq!(sources.len(), 13);
+            assert!(sources.iter().all(|p| p.y == WALL + 30.0));
+            for _ in 0..fps / 2 {
+                game.update_modifier(1.0 / fps as f32);
+            }
+            assert!(game.orbs.is_empty());
+            game.state = State::Paused;
+            let time = game.modifier_time;
+            game.update_modifier(5.0);
+            assert_eq!(game.modifier_time, time);
+            game.state = State::Playing;
+            for _ in 0..fps * 5 {
+                game.update_modifier(1.0 / fps as f32);
+            }
+            assert_eq!(game.orbs.len(), 26, "{fps} FPS");
+            assert!(
+                game.orbs[..13]
+                    .iter()
+                    .all(|o| o.vel.y > 0.0 && o.vel.x == 0.0)
+            );
+            assert!(
+                game.orbs[13..]
+                    .iter()
+                    .all(|o| o.vel.x < 0.0 && o.vel.y == 0.0)
+            );
+            game.orbs.clear();
+            for _ in 0..MAX_ORBS - 1 {
+                game.add_orb(v2(100.0, 100.0), V2::default());
+            }
+            game.modifier_time = 0.9;
+            game.update_modifier(0.2);
+            assert_eq!(game.orbs.len(), MAX_ORBS);
+            game.wave_clear = 1.0;
+            let time = game.modifier_time;
+            game.update_modifier(2.0);
+            assert_eq!(game.modifier_time, time);
+        }
+    }
 
     #[test]
     fn rosters_include_death_spawns_without_exceeding_three_types() {

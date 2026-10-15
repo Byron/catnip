@@ -30,9 +30,14 @@ impl Renderer {
             game.state,
             State::Playing | State::Paused | State::Dying | State::Upgrade
         ) {
+            let hud_rows = if game.wave_modifier == crate::game::WaveModifier::Calm {
+                2
+            } else {
+                3
+            };
             let _ = write!(
                 text.out,
-                "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=1,c={},r=2,z={Z_SHADE},C=1,q=2\x1b\\",
+                "\x1b[1;1H\x1b_Ga=p,i={SHADE_ID},p=1,c={},r={hud_rows},z={Z_SHADE},C=1,q=2\x1b\\",
                 win.cols
             );
             text.hud(game, stats, self.sprites_drawn);
@@ -149,12 +154,25 @@ impl Renderer {
                 text.big(row(0.2), TextSize::Medium, Hue::Cyan, "WAVE CLEAR");
             }
             State::Playing if game.banner > 0.0 => {
-                text.big(
-                    row(0.2),
-                    TextSize::Medium,
-                    Hue::Yellow,
-                    &format!("WAVE {}", game.wave),
-                );
+                let r = row(0.2)
+                    + text.big(
+                        row(0.2),
+                        TextSize::Medium,
+                        Hue::Yellow,
+                        &format!("WAVE {}", game.wave),
+                    );
+                if game.wave_modifier != crate::game::WaveModifier::Calm {
+                    text.line(r + 1, "1;38;2;255;59;78", game.wave_modifier.name());
+                    for (i, line) in wrap(
+                        game.wave_modifier.blurb(),
+                        win.cols.saturating_sub(2) as usize,
+                    )
+                    .iter()
+                    .enumerate()
+                    {
+                        text.line(r + 3 + i as u32, "38;2;200;210;255", line);
+                    }
+                }
             }
             State::Paused => {
                 let r = row(0.3) + text.big(row(0.3), TextSize::Medium, Hue::Cyan, "PAUSED") + 1;
@@ -438,6 +456,22 @@ impl Text<'_> {
         if hint_col + hint.len() as u32 <= self.win.cols {
             self.at(2, hint_col, "38;2;140;150;190", hint);
         }
+        if game.wave_modifier != crate::game::WaveModifier::Calm {
+            let label = if game.wave_modifier == crate::game::WaveModifier::Crossfire
+                && game.banner <= 0.0
+                && game.wave_clear <= 0.0
+                && game.modifier_time % 4.0 < 1.0
+            {
+                if game.modifier_time % 8.0 < 4.0 {
+                    "CROSSFIRE: TOP INCOMING"
+                } else {
+                    "CROSSFIRE: RIGHT INCOMING"
+                }
+            } else {
+                game.wave_modifier.name()
+            };
+            self.line(3, "1;38;2;255;59;78", label);
+        }
     }
 }
 
@@ -480,6 +514,62 @@ mod tests {
         assert_eq!(super::group(999), "999");
         assert_eq!(super::group(12345), "12,345");
         assert_eq!(super::group(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn modifier_warning_wraps_and_clears_after_introduction() {
+        let (atlas, sprites) = art::build_sprites(0.3);
+        let stats = Stats {
+            fps: 60.0,
+            frame_ms: 1.0,
+            kb_per_frame: 1.0,
+        };
+        for cols in [30, 120] {
+            let win = Window {
+                cols,
+                rows: 40,
+                width: cols * 8,
+                height: 640,
+            };
+            let mut renderer = Renderer::new((100, 100), atlas.len());
+            let mut game = Game::new(42);
+            game.state = State::Playing;
+            game.wave = 6;
+            for modifier in [
+                crate::game::WaveModifier::Reinforcements,
+                crate::game::WaveModifier::Volatile,
+                crate::game::WaveModifier::Crossfire,
+            ] {
+                game.wave_modifier = modifier;
+                game.banner = 2.0;
+                let mut out = Vec::new();
+                renderer.frame(&mut out, &game, &sprites, 0.3, win, &stats);
+                let text = std::str::from_utf8(&out).unwrap();
+                assert!(text.contains(modifier.name()));
+                for line in wrap(modifier.blurb(), cols.saturating_sub(2) as usize) {
+                    assert!(line.len() < cols as usize);
+                    assert!(text.contains(&line));
+                }
+                game.banner = 0.0;
+                out.clear();
+                renderer.frame(&mut out, &game, &sprites, 0.3, win, &stats);
+                let text = std::str::from_utf8(&out).unwrap();
+                assert!(text.contains(modifier.name()), "modifier stays in the HUD");
+                assert!(!text.contains("Watch the spawn rings."));
+                assert!(text.contains(&format!("r=3,z={Z_SHADE}")));
+                if modifier == crate::game::WaveModifier::Crossfire {
+                    assert!(text.contains("CROSSFIRE: TOP INCOMING"));
+                    game.modifier_time = 4.5;
+                    out.clear();
+                    renderer.frame(&mut out, &game, &sprites, 0.3, win, &stats);
+                    assert!(
+                        std::str::from_utf8(&out)
+                            .unwrap()
+                            .contains("CROSSFIRE: RIGHT INCOMING")
+                    );
+                }
+            }
+        }
     }
 
     #[test]
