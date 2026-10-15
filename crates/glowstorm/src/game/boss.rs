@@ -17,6 +17,16 @@ pub enum BossKind {
 }
 
 impl BossKind {
+    pub fn trophy(self) -> Upgrade {
+        match self {
+            Self::Prism => Upgrade::PrismCore,
+            Self::Helix => Upgrade::HelixCoil,
+            Self::Lotus => Upgrade::LotusBloom,
+            Self::Loom => Upgrade::LoomVeil,
+            Self::Eclipse => Upgrade::EclipseCross,
+        }
+    }
+
     pub const ALL: [Self; 5] = [
         Self::Prism,
         Self::Helix,
@@ -568,6 +578,7 @@ impl Game {
     }
 
     pub(super) fn boss_defeated(&mut self, b: Boss) {
+        self.trophy_offer = Some(b.kind);
         let at = b.pos;
         self.slow(1.6, 0.25);
         self.flash = 0.3;

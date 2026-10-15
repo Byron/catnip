@@ -11,10 +11,15 @@ pub enum Upgrade {
     Shield,
     Heart,
     Range,
+    PrismCore,
+    HelixCoil,
+    LotusBloom,
+    LoomVeil,
+    EclipseCross,
 }
 
 impl Upgrade {
-    pub const ALL: [Upgrade; 7] = [
+    pub const ALL: [Upgrade; 12] = [
         Upgrade::Spread,
         Upgrade::Pierce,
         Upgrade::TwinDash,
@@ -22,6 +27,19 @@ impl Upgrade {
         Upgrade::Shield,
         Upgrade::Heart,
         Upgrade::Range,
+        Upgrade::PrismCore,
+        Upgrade::HelixCoil,
+        Upgrade::LotusBloom,
+        Upgrade::LoomVeil,
+        Upgrade::EclipseCross,
+    ];
+
+    pub const TROPHIES: [Self; 5] = [
+        Self::PrismCore,
+        Self::HelixCoil,
+        Self::LotusBloom,
+        Self::LoomVeil,
+        Self::EclipseCross,
     ];
 
     pub fn name(self) -> &'static str {
@@ -33,6 +51,11 @@ impl Upgrade {
             Upgrade::Shield => "SHIELD ORB",
             Upgrade::Heart => "EXTRA HEART",
             Upgrade::Range => "LONG RANGE",
+            Upgrade::PrismCore => "PRISM CORE",
+            Upgrade::HelixCoil => "HELIX COIL",
+            Upgrade::LotusBloom => "LOTUS BLOOM",
+            Upgrade::LoomVeil => "LOOM VEIL",
+            Upgrade::EclipseCross => "ECLIPSE CROSS",
         }
     }
 
@@ -45,12 +68,22 @@ impl Upgrade {
             Upgrade::Shield => "an orb circles you, eats bullets, burns enemies",
             Upgrade::Heart => "+1 max heart and a full heal",
             Upgrade::Range => "no damage loss at range; level 2 adds 25% reach",
+            Upgrade::PrismCore => "automatically fire an eight-shot ring every 3 seconds",
+            Upgrade::HelixCoil => "automatically fire twin rotating shots every 0.3 seconds",
+            Upgrade::LotusBloom => "automatically fire a five-petal aimed fan every 2 seconds",
+            Upgrade::LoomVeil => "clear hostile bullets within 140 pixels every 4 seconds",
+            Upgrade::EclipseCross => "automatically fire a rotating cross every 1.5 seconds",
         }
     }
 
     pub fn max_level(self) -> u8 {
         match self {
-            Upgrade::TwinDash => 1,
+            Upgrade::TwinDash
+            | Upgrade::PrismCore
+            | Upgrade::HelixCoil
+            | Upgrade::LotusBloom
+            | Upgrade::LoomVeil
+            | Upgrade::EclipseCross => 1,
             _ => 2,
         }
     }
@@ -81,7 +114,7 @@ impl Upgrades {
     pub fn available(&self) -> Vec<Upgrade> {
         Upgrade::ALL
             .into_iter()
-            .filter(|&u| self.level(u) < u.max_level())
+            .filter(|&u| !Upgrade::TROPHIES.contains(&u) && self.level(u) < u.max_level())
             .collect()
     }
 }
@@ -100,6 +133,12 @@ impl Game {
     pub(super) fn roll_offer(&mut self) -> Vec<Upgrade> {
         let mut pool = self.player.upgrades.available();
         let mut offer = Vec::new();
+        if let Some(boss) = self.trophy_offer {
+            let trophy = boss.trophy();
+            if self.player.upgrades.level(trophy) == 0 {
+                offer.push(trophy);
+            }
+        }
         while offer.len() < 3 && !pool.is_empty() {
             let i = (self.rng.next() as usize) % pool.len();
             offer.push(pool.swap_remove(i));
@@ -159,6 +198,7 @@ impl Game {
         }
         let at = p.pos;
         self.offer.clear();
+        self.trophy_offer = None;
         self.flash = 0.1;
         self.sfx.push(Sfx::Victory);
         self.rings.push(Ring {

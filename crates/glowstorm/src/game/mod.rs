@@ -27,6 +27,7 @@ mod player;
 #[cfg(test)]
 mod tests;
 mod trickshots;
+mod trophies;
 mod upgrades;
 mod waves;
 
@@ -120,6 +121,9 @@ pub struct Game {
     /// Cards on offer in the Upgrade state, and the highlighted one.
     pub offer: Vec<Upgrade>,
     pub offer_pick: usize,
+    pub trophy_offer: Option<BossKind>,
+    trophy_cd: [f32; Upgrade::TROPHIES.len()],
+    trophy_time: f32,
     next_id: u32,
     /// Jump the camera to its target instead of easing (new run).
     snap_camera: bool,
@@ -224,6 +228,9 @@ impl Game {
             difficulty: Difficulty::Medium,
             offer: Vec::new(),
             offer_pick: 0,
+            trophy_offer: None,
+            trophy_cd: [0.0; Upgrade::TROPHIES.len()],
+            trophy_time: 0.0,
             next_id: 1,
             snap_camera: false,
         };
@@ -488,6 +495,7 @@ impl Game {
         if self.state == State::Playing {
             self.update_shields(dt);
             self.update_gatling(dt);
+            self.update_trophies(dt);
         }
         self.update_fields(dt);
         self.update_trickshots(dt);

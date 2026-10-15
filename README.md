@@ -141,8 +141,22 @@ To practice a specific encounter, start with `glowstorm --wave 10` (HELIX),
 
 From wave 6, rare elite enemies show up with a gold ring: three times the
 health, a nastier attack, and guaranteed loot. After each boss you pick one of
-three upgrades: spread shot, piercing bullets, twin dash, coolant, a shield orb,
-an extra heart, or longer range.
+three cards. An unowned trophy from the defeated boss appears alongside regular
+upgrades: spread shot, piercing bullets, twin dash, coolant, a shield orb, an
+extra heart, or longer range. Trophies last for the current run and work
+automatically alongside any weapon, without adding heat:
+
+| Boss trophy | Power |
+|---|---|
+| PRISM CORE | Eight-shot ring every 3 seconds. |
+| HELIX COIL | Twin rotating shots every 0.3 seconds. |
+| LOTUS BLOOM | Five-petal aimed fan every 2 seconds. |
+| LOOM VEIL | Clears hostile bullets within 140 pixels every 4 seconds. |
+| ECLIPSE CROSS | Rotating four-shot cross every 1.5 seconds. |
+
+Each trophy can be taken once per run. Repeated bosses offer regular upgrades
+if you already own their trophy. Trophy timers pause during menus, wave
+introductions, and boss entrances.
 
 Pick Medium, Hard or Extreme on the title screen. Harder settings mean fewer
 hearts and faster, more aggressive, more numerous enemies, and pay up to 2× the

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Each boss offers a unique optional trophy card that adds an automatic power
+  for the rest of the run.
 - `--seed` / `GLOWSTORM_SEED` selects gameplay randomness and shuffles later
   enemy combinations. The default is 1, and retries reuse the selected seed.
 - Title screen tells Ghostty players to dash with Space: Ghostty loses the

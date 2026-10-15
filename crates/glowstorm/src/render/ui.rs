@@ -289,7 +289,9 @@ impl Text<'_> {
             self.at(r + 1, col + cols / 2, "38;2;140;150;190", &key);
             let name_rows = self.big_at(r + 3, center, size, hue, upgrade.name());
             let level = game.player.upgrades.level(upgrade);
-            let status = if level == 0 {
+            let status = if crate::game::Upgrade::TROPHIES.contains(&upgrade) {
+                "BOSS TROPHY".to_string()
+            } else if level == 0 {
                 "NEW".to_string()
             } else {
                 format!("LEVEL {} → {}", level, level + 1)

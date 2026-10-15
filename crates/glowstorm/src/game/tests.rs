@@ -3670,4 +3670,9 @@ fn every_state_enemy_and_boss_phase_renders_without_panicking() {
         game.state = state;
         draw(&game);
     }
+    for trophy in Upgrade::TROPHIES {
+        game.offer = vec![trophy, Upgrade::Heart, Upgrade::Coolant];
+        game.state = State::Upgrade;
+        draw(&game);
+    }
 }
