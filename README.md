@@ -4,6 +4,7 @@
 
 A small Rust game engine for the [kitty](https://sw.kovidgoyal.net/kitty/) terminal.
 It also runs in [Ghostty](https://ghostty.org), which implements kitty's protocols.
+On Windows, it runs natively in Rustty with graphics streamed through the terminal.
 
 Catnip doesn't draw with text characters. It uploads sprite sheets to kitty once
 and then moves them around as image placements every frame, so kitty's GPU does
@@ -20,8 +21,8 @@ A twin-stick arena shooter, and the first game built on Catnip.
 ### Install
 
 Glowstorm needs [kitty](https://sw.kovidgoyal.net/kitty/) or
-[Ghostty](https://ghostty.org) to play in. Started from any other terminal, it
-opens itself in one of them.
+[Ghostty](https://ghostty.org) on Linux/macOS, or **Rustty on Windows**.
+Started from another terminal, it tries to open a supported terminal from `PATH`.
 
 - **Download:** grab `glowstorm-v*-x86_64-linux.tar.gz` from
   [Releases](https://github.com/Hemantabhusal/catnip/releases), unpack it and
@@ -35,13 +36,24 @@ opens itself in one of them.
   cargo run --release
   ```
 
-Sound uses CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
+On Windows, run the same build command inside Rustty. To launch an already built
+game from PowerShell, use `rustty -e .\target\release\glowstorm.exe` with Rustty on
+`PATH`. Building requires the Rust MSVC toolchain and Visual Studio C++ build tools.
+The Linux download above cannot run natively on Windows.
+
+Sound uses WASAPI on Windows, CoreAudio on macOS and ALSA on Linux (`alsa-lib` on Arch,
 `libasound2` on Debian/Ubuntu); without an audio device the game runs silently.
 Use `glowstorm --no-sound` (or `cargo run --release -- --no-sound`) to skip sound
 synthesis, audio initialization, and playback when comparing frame rates.
 `glowstorm -h` or `glowstorm --help` shows the available options.
 
 The frame rate defaults to **60 FPS**; use `--fps 144` to change the target.
+
+Image uploads use **direct streaming on Windows** and shared memory on Unix.
+Use `--graphics-transport direct` to stream on Unix too, for example when the
+terminal cannot access the game's shared memory over a remote connection.
+Streaming transfers the sprite sheets and floor at startup; ordinary frames
+still send only placement commands. Resizing may upload a new floor or atlas.
 
 Use `glowstorm --seed 42` to change the order of later enemy combinations and
 gameplay randomness. The default seed is **1**, and retries reuse the selected
@@ -60,6 +72,7 @@ environment variable; command-line flags take precedence:
 | Flag | Environment variable | Default |
 |---|---|---|
 | `--no-sound` | `GLOWSTORM_NO_SOUND` | off |
+| `--graphics-transport <TRANSPORT>` | `GLOWSTORM_GRAPHICS_TRANSPORT` | `direct` on Windows, `shared-memory` on Unix |
 | `--fps <FPS>` | `GLOWSTORM_FPS` | 60 (valid range: 1–65535) |
 | `--seed <SEED>` | `GLOWSTORM_SEED` | 1 (positive 64-bit integer) |
 | `--scale <SCALE>` | `GLOWSTORM_SCALE` | automatic (override: 0.3–1.8) |
@@ -299,7 +312,9 @@ and costs one heart, even during hit grace.
 Your gun heats up as you fire and locks for a second if it overheats, and
 shots lose up to a quarter of their damage at long range, so it pays to get
 close. Quick kills build a multiplier up to ×8 with a rising note for every
-kill in the chain; getting hit resets it. Best scores are kept per difficulty in `~/.local/share/glowstorm/`.
+kill in the chain; getting hit resets it. Best scores are kept per difficulty in
+`~/.local/share/glowstorm/` on Unix or `%LOCALAPPDATA%\glowstorm\` on Windows.
+`XDG_DATA_HOME` overrides the base directory on either platform.
 
 The arena is at least 2400 × 1500 game units. Larger terminals expand its width
 and height independently to fill the window, including when resized mid-run.
@@ -309,7 +324,8 @@ and height independently to fill the window, including when resized mid-run.
 - All art is generated in code at start-up, at the window's real pixel size:
   one sprite atlas (rotations are pre-rendered, since kitty can't rotate an
   image) and one large arena floor.
-- Both are sent to kitty through shared memory. Frames contain placement commands;
+- Both are sent through shared memory on Unix or chunked base64 uploads on Windows.
+  Frames contain placement commands;
   the floor is rebuilt and uploaded again when resizing changes the arena size.
 - The camera scrolls by changing which part of the floor image is shown.
 - Input uses kitty's keyboard protocol (so held keys and key release work) and
@@ -339,9 +355,9 @@ crates/
 
 ## Requirements
 
-- a recent kitty, or Ghostty 1.x
-- Linux or macOS
-- CoreAudio on macOS, ALSA on Linux; the game runs silently without an audio device
+- Linux or macOS with a recent kitty or Ghostty 1.x; Windows with Rustty
+- WASAPI on Windows, CoreAudio on macOS, ALSA on Linux; the game runs silently
+  without an audio device
 
 ## Known issues
 
@@ -385,7 +401,8 @@ cargo clippy --workspace --all-targets
 continuous fire and boost. Charged weapons still fill normally, then hold full
 charge until released, without an overheat penalty or heat timing bonus.
 Runs that skip waves or enable god mode, cards, perfect cooling, spread shot, or
-permanent rapid fire don't save a best score. Logs go to `$TMPDIR/glowstorm.log`.
+permanent rapid fire don't save a best score. Logs go to the system temporary
+directory: `$TMPDIR/glowstorm.log` on Unix or `%TEMP%\glowstorm.log` on Windows.
 The internal `GLOWSTORM_RELAUNCHED=1` setting (also accepted as the hidden
 `--relaunched` flag) prevents repeated attempts to open a supported terminal.
 

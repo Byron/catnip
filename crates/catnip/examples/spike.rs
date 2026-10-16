@@ -2,7 +2,7 @@
 //!
 //! One sprite atlas is uploaded once. Every frame only sends placement
 //! commands ("show slice k at pixel x,y"), plus an optional full-window
-//! pixel buffer through shared memory to compare against.
+//! pixel buffer through the platform's default upload transport to compare against.
 
 use std::{
     collections::HashSet,
@@ -14,7 +14,7 @@ use catnip::{
     kitty::{self, Rect},
     term::{self, Window},
 };
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 const SPRITE: u32 = 24;
 const ATLAS_SPRITES: u32 = 4;
@@ -34,7 +34,7 @@ const DRAG: f32 = 6.0;
 
 fn main() {
     if !term::supported_terminal() {
-        eprintln!("the spike runs inside kitty or Ghostty");
+        eprintln!("the spike runs inside kitty, Ghostty, or Rustty");
         std::process::exit(1);
     }
     let win = match term::window_size() {
@@ -137,10 +137,10 @@ fn run(mut win: Window) -> io::Result<()> {
             } else {
                 Duration::ZERO
             };
-            if !event::poll(timeout)? {
+            let Some(event) = term::read_event(timeout)? else {
                 break;
-            }
-            match event::read()? {
+            };
+            match event {
                 Event::Key(key) => {
                     let code = normalize(key.code);
                     if key.kind == KeyEventKind::Release {
@@ -209,7 +209,9 @@ fn run(mut win: Window) -> io::Result<()> {
             )?;
             kitty::delete_image(&mut frame, BG_IDS[(bg_frame + 1) % 2]);
             bg_frame += 1;
-            shm_bytes = bg_pixels.len();
+            if kitty::Transport::default() == kitty::Transport::SharedMemory {
+                shm_bytes = bg_pixels.len();
+            }
         }
         let cell = win.cell();
         for (index, ball) in balls.iter().enumerate() {

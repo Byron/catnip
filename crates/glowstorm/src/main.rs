@@ -56,7 +56,7 @@ fn main() {
     let log = std::env::temp_dir().join("glowstorm.log");
     let _ = term::redirect_stderr(&log);
     eprintln!(
-        "window {}x{} px, {}x{} cells of {:?} px, scale {scale:.2}, atlas {} pages {}, floor {}x{}, built in {build_time:?}",
+        "window {}x{} px, {}x{} cells of {:?} px, scale {scale:.2}, atlas {} pages {}, floor {}x{}, transport {}, built in {build_time:?}",
         win.width,
         win.height,
         win.cols,
@@ -69,7 +69,8 @@ fn main() {
             .collect::<Vec<_>>()
             .join("+"),
         floor.w,
-        floor.h
+        floor.h,
+        options.graphics_transport,
     );
     let audio = if options.no_sound {
         None
@@ -105,8 +106,14 @@ fn main() {
 }
 
 #[derive(Debug, Parser)]
-#[command(version, about = "A terminal twin-stick shooter for kitty and Ghostty")]
+#[command(
+    version,
+    about = "A terminal twin-stick shooter for kitty, Ghostty, and Rustty"
+)]
 struct Options {
+    /// Image uploads: direct (Windows default) or shared-memory (Unix default)
+    #[arg(long, env = "GLOWSTORM_GRAPHICS_TRANSPORT", default_value_t = kitty::Transport::default())]
+    graphics_transport: kitty::Transport,
     /// Skip sound synthesis, audio initialization, and playback
     #[arg(long, env = "GLOWSTORM_NO_SOUND", value_parser = clap::builder::BoolishValueParser::new())]
     no_sound: bool,
@@ -133,14 +140,15 @@ fn parse_scale(value: &str) -> Result<f32, String> {
     Ok(scale)
 }
 
-const UNSUPPORTED: &str = "Glowstorm runs in kitty or Ghostty (it draws with the kitty graphics and
-keyboard protocols). Both are free:
+const UNSUPPORTED: &str = "Glowstorm needs the kitty graphics and keyboard protocols.
+On Windows, run it inside Rustty.
+On Linux or macOS, use:
   kitty    https://sw.kovidgoyal.net/kitty/
   Ghostty  https://ghostty.org";
 
 const NO_KEYBOARD: &str = "This terminal didn't turn on key-release reporting (the kitty keyboard
-protocol), which Glowstorm needs for smooth movement. Run it in kitty or
-Ghostty.";
+protocol), which Glowstorm needs for smooth movement. Run it in kitty, Ghostty,
+or Rustty with keyboard enhancement enabled.";
 
 fn relaunch_in_supported_terminal() -> bool {
     use std::process::{Command, Stdio};
@@ -157,26 +165,37 @@ fn relaunch_in_supported_terminal() -> bool {
         cmd
     };
 
-    let mut kitty = Command::new("kitty");
-    kitty
-        .args([
-            "--detach",
-            "--start-as=maximized",
-            "--title",
-            "Glowstorm",
-            "-o",
-            "clear_all_mouse_actions=yes",
-        ])
-        .arg(&exe);
-    if quiet(kitty).status().is_ok_and(|s| s.success()) {
-        return true;
+    #[cfg(windows)]
+    {
+        let mut rustty = Command::new("rustty");
+        rustty
+            .args(["--title=Glowstorm", "--window-save-state=never", "-e"])
+            .arg(&exe);
+        quiet(rustty).spawn().is_ok()
     }
-    // Ghostty has no --detach; spawning without waiting leaves it running.
-    let mut ghostty = Command::new("ghostty");
-    ghostty
-        .args(["--title=Glowstorm", "--maximize=true", "-e"])
-        .arg(&exe);
-    quiet(ghostty).spawn().is_ok()
+    #[cfg(unix)]
+    {
+        let mut kitty = Command::new("kitty");
+        kitty
+            .args([
+                "--detach",
+                "--start-as=maximized",
+                "--title",
+                "Glowstorm",
+                "-o",
+                "clear_all_mouse_actions=yes",
+            ])
+            .arg(&exe);
+        if quiet(kitty).status().is_ok_and(|s| s.success()) {
+            return true;
+        }
+        // Ghostty has no --detach; spawning without waiting leaves it running.
+        let mut ghostty = Command::new("ghostty");
+        ghostty
+            .args(["--title=Glowstorm", "--maximize=true", "-e"])
+            .arg(&exe);
+        quiet(ghostty).spawn().is_ok()
+    }
 }
 
 #[cfg(test)]
@@ -187,6 +206,7 @@ mod tests {
     fn parses_defaults_flags_and_help() {
         let defaults = Options::try_parse_from(["glowstorm"]).unwrap();
         assert!(!defaults.no_sound);
+        assert_eq!(defaults.graphics_transport, kitty::Transport::default());
         assert_eq!(defaults.fps, 60);
         assert_eq!(defaults.seed, 1);
         assert_eq!(defaults.scale, None);
@@ -204,6 +224,8 @@ mod tests {
         let options = Options::try_parse_from([
             "glowstorm",
             "--no-sound",
+            "--graphics-transport",
+            "direct",
             "--wave",
             "6",
             "--god",
@@ -221,6 +243,7 @@ mod tests {
         ])
         .unwrap();
         assert!(options.no_sound && options.relaunched);
+        assert_eq!(options.graphics_transport, kitty::Transport::Direct);
         assert_eq!(options.fps, 144);
         assert_eq!(options.seed, 42);
         assert_eq!(options.scale, Some(0.8));
@@ -233,6 +256,7 @@ mod tests {
     fn rejects_unknown_arguments_and_invalid_numbers() {
         for args in [
             vec!["--no-soud"],
+            vec!["--graphics-transport", "unknown"],
             vec!["unexpected"],
             vec!["--fps", "0"],
             vec!["--fps", "-1"],
@@ -263,6 +287,7 @@ mod tests {
                 .envs([
                     ("GLOWSTORM_TEST_ENV", "1"),
                     ("GLOWSTORM_NO_SOUND", "1"),
+                    ("GLOWSTORM_GRAPHICS_TRANSPORT", "direct"),
                     ("GLOWSTORM_SCALE", "0.8"),
                     ("GLOWSTORM_FPS", "30"),
                     ("GLOWSTORM_SEED", "42"),
@@ -286,6 +311,7 @@ mod tests {
         }
         let options = Options::try_parse_from(["glowstorm"]).unwrap();
         assert!(options.no_sound && options.relaunched);
+        assert_eq!(options.graphics_transport, kitty::Transport::Direct);
         assert_eq!(options.scale, Some(0.8));
         assert_eq!(options.fps, 30);
         assert_eq!(options.seed, 42);

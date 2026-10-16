@@ -16,5 +16,10 @@ name = "catnip"
 [dependencies]
 base64 = "0.22"
 crossterm = "0.28"
-libc = "0.2"
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }

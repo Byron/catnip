@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Native Windows support in Rustty: streamed graphics uploads, VT keyboard and
+  pixel mouse input, terminal size queries, and Windows score/log paths.
+  `--graphics-transport direct` also enables streaming on Unix.
 - Seeded ordinary waves add synchronized reinforcements, volatile wrecks, and
   sweeping crossfire, each announced before enemies begin spawning.
 - Each boss offers a unique optional trophy card that adds an automatic power

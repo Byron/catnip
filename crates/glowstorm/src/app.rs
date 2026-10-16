@@ -8,7 +8,7 @@ use std::{
 
 use catnip::{gfx::Image, kitty, term};
 use crossterm::event::{
-    self, Event, KeyCode, KeyEventKind, KeyModifiers, ModifierKeyCode, MouseButton, MouseEventKind,
+    Event, KeyCode, KeyEventKind, KeyModifiers, ModifierKeyCode, MouseButton, MouseEventKind,
 };
 
 use crate::{
@@ -35,8 +35,9 @@ pub fn run(
     options: &crate::Options,
 ) -> io::Result<Exit> {
     let frame_time = Duration::from_secs_f64(1.0 / f64::from(options.fps));
-    let mut out = io::stdout().lock();
-    upload_images(&mut out, &atlas, &floor)?;
+    let mut out = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
+    let transport = options.graphics_transport;
+    upload_images(&mut out, &atlas, &floor, transport)?;
     // Fail with a clear message instead of running with invisible sprites.
     kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
     // Smooth movement needs key releases.
@@ -59,8 +60,10 @@ pub fn run(
 
     loop {
         // Input until the frame deadline.
-        while event::poll(deadline.saturating_duration_since(Instant::now()))? {
-            match event::read()? {
+        while let Some(event) =
+            term::read_event(deadline.saturating_duration_since(Instant::now()))?
+        {
+            match event {
                 // Keep the old size if the query fails mid-resize.
                 Event::Resize(..) => win = term::window_size().unwrap_or(win),
                 event => {
@@ -87,10 +90,10 @@ pub fn run(
             for i in 0..atlas_pages {
                 kitty::delete_image(&mut bytes, ATLAS_ID + i as u32);
             }
-            for (i, page) in atlas.iter().enumerate() {
-                kitty::upload(&mut bytes, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
-            }
             out.write_all(&bytes)?;
+            for (i, page) in atlas.iter().enumerate() {
+                transport.upload(&mut out, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
+            }
             kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
             atlas_bytes = atlas.iter().map(|page| page.rgba.len()).sum();
             atlas_pages = atlas.len();
@@ -104,9 +107,7 @@ pub fn run(
         let size = game.arena_size * scale;
         if renderer.floor_size != (size.x as u32, size.y as u32) {
             let floor = art::build_floor(scale, game.arena_size.x, game.arena_size.y);
-            let mut bytes = Vec::new();
-            kitty::upload(&mut bytes, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
-            out.write_all(&bytes)?;
+            transport.upload(&mut out, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
             kitty::verify(&mut out, Duration::from_secs(5)).map_err(io::Error::other)?;
             renderer.floor_size = (floor.w, floor.h);
         }
@@ -121,17 +122,21 @@ pub fn run(
     }
 }
 
-/// The atlas pages, the floor, and two 1×1 overlay pixels go to kitty once.
-fn upload_images(out: &mut impl Write, atlas: &[Image], floor: &Image) -> io::Result<()> {
-    let mut bytes = Vec::new();
+/// The atlas pages, floor and overlay pixels are uploaded once. Direct uploads
+/// stream to the writer without keeping all the base64 data in memory at once.
+fn upload_images(
+    out: &mut impl Write,
+    atlas: &[Image],
+    floor: &Image,
+    transport: kitty::Transport,
+) -> io::Result<()> {
     for (i, page) in atlas.iter().enumerate() {
-        kitty::upload(&mut bytes, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
+        transport.upload(out, ATLAS_ID + i as u32, page.w, page.h, &page.rgba)?;
     }
-    kitty::upload(&mut bytes, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
-    kitty::upload(&mut bytes, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
-    kitty::upload(&mut bytes, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
-    kitty::upload(&mut bytes, VOID_ID, 1, 1, &[3, 4, 10, 255])?;
-    out.write_all(&bytes)?;
+    transport.upload(out, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
+    transport.upload(out, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
+    transport.upload(out, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
+    transport.upload(out, VOID_ID, 1, 1, &[3, 4, 10, 255])?;
     out.flush()
 }
 

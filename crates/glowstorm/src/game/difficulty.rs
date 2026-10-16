@@ -98,9 +98,19 @@ impl Difficulty {
 }
 
 pub(super) fn best_score_path(difficulty: Difficulty) -> Option<PathBuf> {
+    #[cfg(windows)]
+    let platform_data = || {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join("AppData/Local"))
+            })
+    };
+    #[cfg(unix)]
+    let platform_data = || std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"));
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
+        .or_else(platform_data)?;
     Some(base.join(format!("glowstorm/best_score{}", difficulty.file_suffix())))
 }
 

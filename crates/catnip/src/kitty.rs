@@ -1,10 +1,13 @@
-//! Kitty graphics protocol commands. Pixel data goes through POSIX shared
-//! memory (`t=s`), so only tiny escape codes travel through the pty.
+//! Kitty graphics protocol commands. Uploads use POSIX shared memory on Unix
+//! and chunked, base64-encoded pixels through the terminal on Windows. Once an
+//! image is uploaded, frames only need small placement commands.
 
+use std::io::{self, Write};
+
+#[cfg(unix)]
 use std::{
     ffi::CString,
     fs::File,
-    io::{self, Write},
     os::fd::{AsRawFd, FromRawFd},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -21,13 +24,16 @@ pub struct Rect {
     pub h: u32,
 }
 
+#[cfg(unix)]
 static SHM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(unix)]
 fn shm_prefix() -> String {
     format!("catnip-{}-", std::process::id())
 }
 
 /// Copies RGBA pixels into a fresh shared-memory object. Kitty unlinks it after reading.
+#[cfg(unix)]
 fn write_shm(pixels: &[u8]) -> io::Result<String> {
     let name = format!(
         "/{}{}",
@@ -82,6 +88,7 @@ fn write_shm(pixels: &[u8]) -> io::Result<String> {
 }
 
 /// Removes shared-memory objects Kitty never consumed (e.g. after a crash mid-frame).
+#[cfg(unix)]
 pub fn cleanup_shm() {
     let prefix = shm_prefix();
     // macOS does not expose shared-memory objects through /dev/shm.
@@ -92,58 +99,173 @@ pub fn cleanup_shm() {
     }
 }
 
+/// Direct uploads leave no shared-memory objects to clean up on Windows.
+#[cfg(windows)]
+pub fn cleanup_shm() {}
+
+/// How image pixels reach the terminal. Placements work the same either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    /// Stream pixels through the terminal, including over remote connections.
+    Direct,
+    /// Use POSIX shared memory; requires a local terminal on Unix.
+    SharedMemory,
+}
+
+impl Default for Transport {
+    fn default() -> Self {
+        if cfg!(windows) {
+            Self::Direct
+        } else {
+            Self::SharedMemory
+        }
+    }
+}
+
+impl std::fmt::Display for Transport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Direct => "direct",
+            Self::SharedMemory => "shared-memory",
+        })
+    }
+}
+
+impl std::str::FromStr for Transport {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "direct" => Ok(Self::Direct),
+            "shared-memory" if cfg!(unix) => Ok(Self::SharedMemory),
+            "shared-memory" => Err("shared-memory uploads require Unix; use direct".into()),
+            _ => Err("expected direct or shared-memory".into()),
+        }
+    }
+}
+
+impl Transport {
+    /// Uploads an image without showing it. Call `verify` after flushing uploads
+    /// to check for errors reported by the terminal (`q=1`).
+    pub fn upload(
+        self,
+        out: &mut impl Write,
+        id: u32,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+    ) -> io::Result<()> {
+        validate_rgba(w, h, rgba)?;
+        self.transmit(out, format_args!("a=t,i={id},f=32,s={w},v={h}"), 1, rgba)
+    }
+
+    /// Uploads an image and stretches it over the whole window.
+    pub fn show_fullscreen(
+        self,
+        out: &mut impl Write,
+        id: u32,
+        (w, h): (u32, u32),
+        rgba: &[u8],
+        (cols, rows): (u32, u32),
+        z: i32,
+    ) -> io::Result<()> {
+        validate_rgba(w, h, rgba)?;
+        out.write_all(b"\x1b[1;1H")?;
+        self.transmit(
+            out,
+            format_args!("a=T,i={id},p=1,f=32,s={w},v={h},c={cols},r={rows},z={z},C=1"),
+            2,
+            rgba,
+        )
+    }
+
+    fn transmit(
+        self,
+        out: &mut impl Write,
+        controls: std::fmt::Arguments<'_>,
+        quiet: u8,
+        rgba: &[u8],
+    ) -> io::Result<()> {
+        match self {
+            Self::SharedMemory => {
+                #[cfg(unix)]
+                {
+                    let name = write_shm(rgba)?;
+                    write!(out, "\x1b_G{controls},t=s,q={quiet};{name}\x1b\\")
+                }
+                #[cfg(windows)]
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "POSIX shared memory is unavailable on Windows; use direct uploads",
+                ))
+            }
+            Self::Direct => {
+                // 3072 raw bytes encode to the protocol's 4096-byte payload limit.
+                // Encode one chunk at a time, without a second image-sized buffer.
+                let mut encoded = [0u8; 4096];
+                let mut chunks = rgba.chunks(3072).peekable();
+                let mut first = true;
+                while let Some(chunk) = chunks.next() {
+                    let more = u8::from(chunks.peek().is_some());
+                    if first {
+                        write!(out, "\x1b_G{controls},t=d,q={quiet},m={more};")?;
+                        first = false;
+                    } else {
+                        // Continuations may contain only m and q.
+                        write!(out, "\x1b_Gm={more},q={quiet};")?;
+                    }
+                    let len = STANDARD.encode_slice(chunk, &mut encoded).unwrap();
+                    out.write_all(&encoded[..len])?;
+                    out.write_all(b"\x1b\\")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+fn validate_rgba(w: u32, h: u32, rgba: &[u8]) -> io::Result<()> {
+    let expected = u64::from(w) * u64::from(h);
+    if w == 0 || h == 0 || expected.checked_mul(4) != Some(rgba.len() as u64) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "image dimensions do not match the RGBA pixel data",
+        ));
+    }
+    Ok(())
+}
+
 /// Uploads an image without showing it; placements reference it later.
 /// Only errors are reported back (`q=1`); call `verify` afterwards to see them.
-pub fn upload(out: &mut Vec<u8>, id: u32, w: u32, h: u32, rgba: &[u8]) -> io::Result<()> {
-    let name = write_shm(rgba)?;
-    write!(
-        out,
-        "\x1b_Ga=t,i={id},f=32,s={w},v={h},t=s,q=1;{name}\x1b\\"
-    )
+pub fn upload(out: &mut impl Write, id: u32, w: u32, h: u32, rgba: &[u8]) -> io::Result<()> {
+    Transport::default().upload(out, id, w, h, rgba)
 }
 
 /// Waits for the terminal to finish everything sent so far and fails if it
 /// rejected an upload, or never answers (graphics protocol unavailable, e.g.
-/// inside tmux or over SSH where shared memory isn't reachable).
+/// inside tmux without graphics passthrough).
 pub fn verify(out: &mut impl io::Write, timeout: std::time::Duration) -> Result<(), String> {
     const MARKER: u32 = 0x7f00_0001;
     // A query for a 1×1 image always gets a reply, after all earlier commands.
     write!(out, "\x1b_Ga=q,i={MARKER},s=1,v=1,f=24,t=d;AAAA\x1b\\")
         .and_then(|()| out.flush())
         .map_err(|e| e.to_string())?;
-    let deadline = std::time::Instant::now() + timeout;
-    let mut received = Vec::new();
-    loop {
-        for (id, message) in replies(&received) {
-            if id == MARKER {
-                return Ok(());
-            }
-            if message != "OK" {
-                return Err(format!("the terminal rejected image {id}: {message}"));
-            }
+    let received = crate::term::read_input_until(timeout, |bytes| {
+        replies(bytes)
+            .iter()
+            .any(|(id, message)| *id == MARKER || message != "OK")
+    });
+    for (id, message) in replies(&received) {
+        if message != "OK" {
+            return Err(format!("the terminal rejected image {id}: {message}"));
         }
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() {
-            return Err("no reply from the terminal's graphics protocol \
-                        (inside tmux, over SSH, or not kitty/Ghostty?)"
-                .to_string());
-        }
-        let mut poll = libc::pollfd {
-            fd: libc::STDIN_FILENO,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        // SAFETY: one valid pollfd; read into a stack buffer of the given size.
-        let ready = unsafe { libc::poll(&mut poll, 1, left.as_millis().min(1000) as i32) };
-        if ready > 0 {
-            let mut chunk = [0u8; 1024];
-            let n =
-                unsafe { libc::read(libc::STDIN_FILENO, chunk.as_mut_ptr().cast(), chunk.len()) };
-            if n > 0 {
-                received.extend_from_slice(&chunk[..n as usize]);
-            }
+        if id == MARKER {
+            return Ok(());
         }
     }
+    Err("no reply from the terminal's graphics protocol \
+         (use kitty, Ghostty, or Rustty; check multiplexer passthrough)"
+        .to_string())
 }
 
 /// Complete graphics replies `ESC _G i=<id>[,…];<message> ESC \` in `bytes`.
@@ -166,18 +288,14 @@ fn replies(bytes: &[u8]) -> Vec<(u32, String)> {
 
 /// Uploads an image and stretches it over the whole window.
 pub fn show_fullscreen(
-    out: &mut Vec<u8>,
+    out: &mut impl Write,
     id: u32,
     (w, h): (u32, u32),
     rgba: &[u8],
     (cols, rows): (u32, u32),
     z: i32,
 ) -> io::Result<()> {
-    let name = write_shm(rgba)?;
-    write!(
-        out,
-        "\x1b[1;1H\x1b_Ga=T,i={id},p=1,f=32,s={w},v={h},t=s,c={cols},r={rows},z={z},C=1,q=2;{name}\x1b\\"
-    )
+    Transport::default().show_fullscreen(out, id, (w, h), rgba, (cols, rows), z)
 }
 
 /// Shows `src` of an uploaded image at pixel position (x, y). Re-placing the same
@@ -324,6 +442,115 @@ impl Placer {
 mod tests {
     use super::*;
 
+    #[test]
+    fn direct_uploads_round_trip_across_chunk_boundaries() {
+        for width in [1, 2, 767, 768, 769, 1536, 1537] {
+            let rgba: Vec<u8> = (0..width * 4).map(|i| i as u8).collect();
+            let mut out = Vec::new();
+            Transport::Direct
+                .upload(&mut out, 42, width, 1, &rgba)
+                .unwrap();
+            let text = String::from_utf8(out).unwrap();
+            let chunks: Vec<_> = text.split_terminator("\x1b\\").collect();
+            assert_eq!(chunks.len(), rgba.len().div_ceil(3072));
+            let mut payload = String::new();
+            for (index, chunk) in chunks.iter().enumerate() {
+                let (controls, data) = chunk
+                    .strip_prefix("\x1b_G")
+                    .unwrap()
+                    .split_once(';')
+                    .unwrap();
+                let more = u8::from(index + 1 < chunks.len());
+                if index == 0 {
+                    assert_eq!(
+                        controls,
+                        format!("a=t,i=42,f=32,s={width},v=1,t=d,q=1,m={more}")
+                    );
+                } else {
+                    assert_eq!(controls, format!("m={more},q=1"));
+                }
+                assert!(!data.is_empty() && data.len() <= 4096);
+                if more == 1 {
+                    assert_eq!(data.len(), 4096);
+                    assert!(
+                        !data.contains('='),
+                        "padding is only allowed in the last chunk"
+                    );
+                }
+                payload.push_str(data);
+            }
+            assert_eq!(STANDARD.decode(payload).unwrap(), rgba);
+        }
+    }
+
+    #[test]
+    fn fullscreen_stream_retains_placement_and_quiet_flags() {
+        let rgba = vec![255; 800 * 4];
+        let mut out = Vec::new();
+        Transport::Direct
+            .show_fullscreen(&mut out, 7, (800, 1), &rgba, (80, 24), -10)
+            .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.starts_with(
+            "\x1b[1;1H\x1b_Ga=T,i=7,p=1,f=32,s=800,v=1,c=80,r=24,z=-10,C=1,t=d,q=2,m=1;"
+        ));
+        assert!(text.contains("\x1b\\\x1b_Gm=0,q=2;"));
+    }
+
+    #[test]
+    fn invalid_images_and_broken_writers_fail_cleanly() {
+        for (w, h, rgba) in [
+            (0, 0, &b""[..]),
+            (1, 1, &b"rgb"[..]),
+            (u32::MAX, u32::MAX, &b""[..]),
+        ] {
+            let mut out = Vec::new();
+            assert_eq!(
+                Transport::Direct
+                    .upload(&mut out, 1, w, h, rgba)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
+            assert!(out.is_empty());
+        }
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(
+            Transport::Direct
+                .upload(&mut Broken, 1, 1, 1, &[0; 4])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_defaults_to_direct_and_rejects_shared_memory() {
+        assert_eq!(Transport::default(), Transport::Direct);
+        let mut out = Vec::new();
+        upload(&mut out, 1, 1, 1, &[0; 4]).unwrap();
+        assert!(String::from_utf8(out).unwrap().contains("t=d"));
+        assert!("shared-memory".parse::<Transport>().is_err());
+        assert_eq!(
+            Transport::SharedMemory
+                .upload(&mut Vec::new(), 1, 1, 1, &[0; 4])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Unsupported
+        );
+        cleanup_shm();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn shared_memory_contains_pixels_and_is_cleaned_up() {
         for pixels in [&b"RGBA"[..], &b""[..]] {
