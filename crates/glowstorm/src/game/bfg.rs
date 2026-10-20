@@ -228,7 +228,6 @@ impl Game {
         }
         self.sfx.push(Sfx::BigExplode);
         self.shake = 18.0;
-        self.flash = 0.12;
         self.rings.push(Ring {
             pos,
             t: 0.0,

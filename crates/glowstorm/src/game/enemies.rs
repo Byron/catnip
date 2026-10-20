@@ -37,7 +37,7 @@ pub struct Spec {
     pub spin: f32,
     /// Its sprite turns to face the player instead of spinning.
     pub faces_player: bool,
-    /// A big death: bigger blast, hit-stop, white flash.
+    /// A big death: bigger blast and hit-stop.
     pub big_death: bool,
     /// What it breaks into when killed.
     pub splits_into: Option<(Kind, usize)>,

@@ -558,7 +558,6 @@ impl Game {
 
     fn boss_landed(&mut self, at: V2, hue: Hue) {
         self.shake = 18.0;
-        self.flash = 0.12;
         self.sfx.push(Sfx::BigExplode);
         self.push_motes(at, 600.0, 500.0);
         for (t, hue) in [(0.0, hue), (-0.15, Hue::White)] {
@@ -581,7 +580,6 @@ impl Game {
         self.trophy_offer = Some(b.kind);
         let at = b.pos;
         self.slow(1.6, 0.25);
-        self.flash = 0.3;
         self.shake = 18.0;
         self.hitstop = 0.1;
         self.sfx.push(Sfx::BigExplode);

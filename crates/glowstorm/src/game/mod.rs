@@ -114,8 +114,6 @@ pub struct Game {
     pub boss: Option<Boss>,
     /// Seconds until the boss arrives (WARNING is shown meanwhile).
     pub boss_pending: f32,
-    /// White screen flash, seconds left.
-    pub flash: f32,
     /// "ENRAGED" was already shown this wave.
     enrage_announced: bool,
     slowmo: f32,
@@ -227,7 +225,6 @@ impl Game {
             motes: Vec::new(),
             boss: None,
             boss_pending: 0.0,
-            flash: 0.0,
             enrage_announced: false,
             slowmo: 0.0,
             slowmo_scale: 1.0,
@@ -338,7 +335,6 @@ impl Game {
             self.resize_arena(view.arena_size());
             self.follow(self.player.pos, view, 0.0, 0.0);
         }
-        self.flash = (self.flash - dt).max(0.0);
         let dt = if self.slowmo > 0.0 {
             self.slowmo -= dt;
             dt * self.slowmo_scale

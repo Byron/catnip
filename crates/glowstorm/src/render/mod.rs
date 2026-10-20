@@ -30,8 +30,8 @@ pub const ATLAS_ID: u32 = 100;
 pub const FLOOR_ID: u32 = 11;
 /// 1×1 translucent black pixel, stretched behind the HUD row.
 pub const SHADE_ID: u32 = 12;
-/// 1×1 translucent white pixel for screen flashes.
-pub const FLASH_ID: u32 = 13;
+/// 1×1 translucent white pixel for the selected upgrade card.
+pub const HIGHLIGHT_ID: u32 = 13;
 /// 1×1 opaque dark pixel behind the floor: the void past the arena walls,
 /// whatever the terminal's own background color is.
 pub const VOID_ID: u32 = 14;
@@ -50,7 +50,6 @@ const Z_PLAYER: i32 = -400;
 const Z_ORBS: i32 = -350;
 const Z_PARTICLES: i32 = -300;
 const Z_POPUPS: i32 = -200;
-const Z_FLASH: i32 = -90;
 const Z_SHADE: i32 = -100;
 const Z_DIM: i32 = -80;
 const Z_CARD: i32 = -70;
@@ -68,7 +67,6 @@ pub struct Renderer {
     pub floor_size: (u32, u32),
     text_rows: Vec<u32>,
     dimmed: bool,
-    flashing: bool,
     cards_shown: bool,
     /// Ghostty loses mouse releases when two buttons are held; the title says so.
     ghostty: bool,
@@ -83,7 +81,6 @@ impl Renderer {
             floor_size,
             text_rows: Vec::new(),
             dimmed: false,
-            flashing: false,
             cards_shown: false,
             ghostty: catnip::term::Terminal::detect() == Some(catnip::term::Terminal::Ghostty),
             sprites_drawn: 0,
@@ -139,18 +136,6 @@ impl Renderer {
         );
 
         world::draw_world(&mut draw, game, sprites);
-
-        if game.flash > 0.0 {
-            let _ = write!(
-                draw.out,
-                "\x1b[1;1H\x1b_Ga=p,i={FLASH_ID},p=1,c={},r={},z={Z_FLASH},C=1,q=2\x1b\\",
-                win.cols, win.rows
-            );
-            self.flashing = true;
-        } else if self.flashing {
-            kitty::delete_placement(draw.out, FLASH_ID, 1);
-            self.flashing = false;
-        }
 
         self.text(out, game, sprites, win, stats, scale);
         self.sprites_drawn = self.atlas.count();

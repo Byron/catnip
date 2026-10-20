@@ -815,7 +815,6 @@ impl Game {
         let points = self.award(e.kind.spec().score * if e.elite { 3 } else { 1 });
         self.popup(e.pos, format!("+{points}"), e.elite);
         if e.elite {
-            self.flash = 0.06;
             self.rings.push(Ring {
                 pos: e.pos,
                 t: -0.1,
@@ -871,7 +870,6 @@ impl Game {
             .push(if big { Sfx::BigExplode } else { Sfx::Explode });
         if big {
             self.hitstop = 0.04;
-            self.flash = 0.05;
         }
         if split && let Some((kind, count)) = e.kind.spec().splits_into {
             for i in 0..count {
@@ -973,7 +971,6 @@ impl Game {
             self.state = State::Dying;
             self.state_t = 1.8;
             self.slow(1.0, 0.35);
-            self.flash = 0.12;
             self.sfx.push(Sfx::BigExplode);
             self.rings.push(Ring {
                 pos,

@@ -160,7 +160,6 @@ impl Game {
             let bonus = (100.0 * self.wave as f32 * self.difficulty.tuning().score).round() as u64;
             self.score += bonus;
             self.slow(0.6, 0.35);
-            self.flash = 0.08;
             self.sfx.push(Sfx::WaveClear);
             self.popup(self.player.pos + v2(0.0, -46.0), format!("+{bonus}"), true);
             self.popup(

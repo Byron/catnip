@@ -66,7 +66,7 @@ impl Renderer {
             for id in [10, 11, 12] {
                 kitty::delete_placement(text.out, SHADE_ID, id);
             }
-            kitty::delete_placement(text.out, FLASH_ID, 2);
+            kitty::delete_placement(text.out, HIGHLIGHT_ID, 2);
             self.cards_shown = false;
         }
         let row = |fraction: f32| ((win.rows as f32 * fraction) as u32).max(2);
@@ -286,7 +286,7 @@ impl Text<'_> {
             if picked {
                 let _ = write!(
                     self.out,
-                    "\x1b[{r};{col}H\x1b_Ga=p,i={FLASH_ID},p=2,c={cols},r={CARD_ROWS},z={},C=1,q=2\x1b\\",
+                    "\x1b[{r};{col}H\x1b_Ga=p,i={HIGHLIGHT_ID},p=2,c={cols},r={CARD_ROWS},z={},C=1,q=2\x1b\\",
                     Z_CARD + 1
                 );
             }

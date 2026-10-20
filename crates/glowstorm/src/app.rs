@@ -14,7 +14,7 @@ use crossterm::event::{
 use crate::{
     art::{self, Sprites},
     game::{Game, Input, View, v2},
-    render::{ATLAS_ID, FLASH_ID, FLOOR_ID, Renderer, SHADE_ID, Stats, VOID_ID},
+    render::{ATLAS_ID, FLOOR_ID, HIGHLIGHT_ID, Renderer, SHADE_ID, Stats, VOID_ID},
     sound::Audio,
 };
 
@@ -135,7 +135,7 @@ fn upload_images(
     }
     transport.upload(out, FLOOR_ID, floor.w, floor.h, &floor.rgba)?;
     transport.upload(out, SHADE_ID, 1, 1, &[4, 5, 12, 170])?;
-    transport.upload(out, FLASH_ID, 1, 1, &[255, 255, 255, 60])?;
+    transport.upload(out, HIGHLIGHT_ID, 1, 1, &[255, 255, 255, 60])?;
     transport.upload(out, VOID_ID, 1, 1, &[3, 4, 10, 255])?;
     out.flush()
 }

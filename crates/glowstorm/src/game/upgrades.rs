@@ -199,7 +199,6 @@ impl Game {
         let at = p.pos;
         self.offer.clear();
         self.trophy_offer = None;
-        self.flash = 0.1;
         self.sfx.push(Sfx::Victory);
         self.rings.push(Ring {
             pos: at,
